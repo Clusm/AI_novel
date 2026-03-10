@@ -1,0 +1,34 @@
+# 忽略虚拟环境
+.venv/
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 忽略API密钥文件
+.api_keys.enc
+.encryption_key
+
+# CrewAI 记忆数据（包含本地向量库/缓存）
+.crewai/
+
+# 忽略项目目录
+projects/
+
+# 忽略导出目录
+exports/
+
+# PyInstaller 构建产物
+build/
+dist/
+
+# 忽略运行日志
+logs/
+
+# 忽略IDE文件
+.vscode/
+.idea/
+
+# 忽略系统文件
+Thumbs.db
+.DS_Store
