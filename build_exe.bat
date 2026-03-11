@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
 setlocal EnableExtensions
 pushd "%~dp0"
@@ -50,7 +50,6 @@ REM Run PyInstaller
 "%PYEXE%" -m PyInstaller --noconfirm --onefile --windowed --clean ^
     --name "AI_Novel_Writer" ^
     --icon "favicon.ico" ^
-    --collect-all streamlit ^
     --collect-all crewai ^
     --collect-all chromadb ^
     --collect-all langchain ^
@@ -58,11 +57,9 @@ REM Run PyInstaller
     --collect-all litellm ^
     --collect-all docx ^
     --collect-all ebooklib ^
-    --hidden-import streamlit ^
     --hidden-import litellm ^
     --hidden-import tiktoken_ext.openai_public ^
     --hidden-import tiktoken_ext ^
-    --add-data "app.py;." ^
     --add-data "src;src" ^
     run_app.py
 

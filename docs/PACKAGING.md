@@ -1,6 +1,6 @@
 # 打包与发布（PACKAGING）
 
-本项目当前使用 PyInstaller 打包为 Windows 可执行文件（EXE）。由于依赖栈较重（Streamlit + CrewAI + ChromaDB + 导出组件），onefile 体积会明显偏大。
+本项目当前使用 PyInstaller 打包为 Windows 可执行文件（EXE）。由于依赖栈较重（CrewAI + ChromaDB + 导出组件），onefile 体积会明显偏大。
 
 ## 当前打包方式（onefile）
 
@@ -11,7 +11,7 @@
 特征：
 
 - `onefile`：生成单个 EXE，首次启动会解压依赖，启动慢但分发简单
-- `collect_all()`：对 streamlit / crewai / chromadb / langchain / tiktoken / litellm / docx / ebooklib 等进行资源收集，体积增长明显
+- `collect_all()`：对 crewai / chromadb / langchain / tiktoken / litellm / docx / ebooklib 等进行资源收集，体积增长明显
 - `upx=True`：能压缩一部分体积，但对某些二进制依赖的收益有限
 
 ## 降体积的推荐路线
@@ -47,8 +47,7 @@
 
 主要原因：
 
-- Streamlit 自身依赖较多（前端资源、runtime 等）
-- ChromaDB/向量检索相关依赖体积大
+- CrewAI/ChromaDB/向量检索相关依赖体积大
 - 文档导出依赖（python-docx、ebooklib、pypandoc 等）会额外引入资源
 - Windows 下的 python runtime、扩展模块、证书等都会打入包内
 
@@ -62,4 +61,4 @@
 
 - [run_app.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/run_app.py)
 
-它负责在 EXE 模式下选择端口、启动 Streamlit，并在服务就绪后打开浏览器页面。
+它负责在 EXE 模式下启动 PySide6 应用程序。

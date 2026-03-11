@@ -1,8 +1,5 @@
 import os
 import json
-from docx import Document
-from docx.shared import Inches
-from ebooklib import epub
 from datetime import datetime
 
 from src.project import load_project_config, load_outline, list_generated_chapters, load_chapter
@@ -43,6 +40,12 @@ def export_to_txt(project_name, output_path=None):
 
 def export_to_word(project_name, output_path=None):
     """导出为Word格式"""
+    try:
+        from docx import Document
+        from docx.shared import Inches
+    except ImportError:
+        raise ImportError("导出 Word 功能需要安装 python-docx 库。请运行: pip install python-docx")
+
     if output_path is None:
         output_path = f"{project_name}_{datetime.now().strftime('%Y%m%d')}.docx"
     
@@ -77,6 +80,11 @@ def export_to_word(project_name, output_path=None):
 
 def export_to_epub(project_name, output_path=None):
     """导出为EPUB格式"""
+    try:
+        from ebooklib import epub
+    except ImportError:
+        raise ImportError("导出 EPUB 功能需要安装 ebooklib 库。请运行: pip install ebooklib")
+
     if output_path is None:
         output_path = f"{project_name}_{datetime.now().strftime('%Y%m%d')}.epub"
     

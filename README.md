@@ -1,95 +1,125 @@
-# AI 小说写作系统（AI Novel Factory）
+# AI 小说写作系统 (AI Novel Factory)
 
-基于 Streamlit + CrewAI 的多智能体网文写作流水线：从大纲出发，自动生成章节正文，并提供一致性维护（剧情圣经/章节摘要/事实台账）、项目管理与多格式导出。
+基于 PySide6 + CrewAI 的多智能体网文写作流水线：从大纲出发，自动生成章节正文，并提供一致性维护（剧情圣经/章节摘要/事实台账）、项目管理与多格式导出。
 
-## 主要特性
+---
 
-- 多项目管理：每本书独立存储大纲、章节、摘要、日志等资产
-- 多 Agent 流水线：提纲 → 设定守护 → 爽点 → 主写 → 终审（审查+润色）
-- 一致性资产：
-  - 剧情圣经：从大纲提炼的全局设定资产（世界观/人物卡/伏笔表等）
-  - 章节摘要：每章自动生成并作为下一章强连续性输入
-  - 事实台账：每章沉淀“不可逆事实/状态变更/资源变更/锚点”
-- 章节成品规范：
-  - 终审定稿自动去除章节内情节标题（只保留 `# 第N章 标题`）
-  - 正文长度自动保障（默认 ≥3500 字，自动扩写补足）
-- API Key 安全存储：加密保存到本地文件（不写入代码）
-- 导出：TXT / Word（docx）/ EPUB
+## 1. 项目说明
 
-## 快速开始（普通用户）
+### 1.1 目标与定位
+**AI 小说写作系统** 是一个面向 **中文网文创作** 的 AI 辅助写作工具。目标是通过多角色、流水线式的 AI 协作，在用户提供大纲的前提下，自动完成单章或整本书的正文生成，并兼顾：
+- **结构清晰**：大纲拆解、伏笔与爽点规划；
+- **人设一致**：人物卡与世界观维护，减少后期“崩人设”；
+- **网文感**：节奏、爽点设计、语言风格贴近网文阅读习惯；
+- **连贯与质量**：情节审查与最终润色。
 
-1. 运行 `dist/AI_Novel_Writer.exe`
-2. 浏览器自动打开页面（首次启动可能需要 30–60 秒）
-3. 在侧边栏配置 API Key（DeepSeek / 通义千问 / Kimi 可选）
-4. 新建项目 → 粘贴大纲 → 生成章节
+### 1.2 主要特性
+- **多项目管理**：每本书独立存储大纲、章节、摘要、日志等资产。
+- **多 Agent 流水线**：提纲优化 → 设定守护 → 章节主写 → 终审润色。
+- **一致性资产**：
+  - **剧情圣经**：从大纲提炼的全局设定资产（世界观/人物卡/伏笔表等）。
+  - **章节摘要**：每章自动生成并作为下一章强连续性输入。
+  - **事实台账**：每章沉淀“不可逆事实/状态变更/资源变更/锚点”。
+- **章节成品规范**：
+  - 终审定稿自动去除章节内情节标题（只保留 `# 第N章 标题`）。
+  - 正文长度自动保障（默认 ≥3500 字，自动扩写补足）。
+- **API Key 安全存储**：加密保存到本地文件（不写入代码）。
+- **多格式导出**：支持 TXT / Word (docx) / EPUB。
 
-更详细的使用步骤见：[docs/USAGE.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/docs/USAGE.md)
+---
 
-## 快速开始（开发者）
+## 2. 技术工作原理
 
-### 环境要求
+### 2.1 系统架构
+项目核心由三层组成：
+1. **交互层 (UI)**：`main_gui.py` + `gui/` (PySide6)。
+2. **编排层 (多 Agent 工作流)**：`src/generator.py` + `src/agents.py` + `src/tasks.py` (CrewAI)。
+3. **资产层 (项目文件与记忆存储)**：`src/project.py` + `.crewai/` + `projects/` (本地文件 + CrewAI 记忆数据库)。
 
+### 2.2 四 Agent 核心协同机制
+每一章的生成都经过以下 4 个核心 Agent 的协同，顺序固定：
+1. **大纲动态优化师 (DeepSeek)**：将用户大纲细化为当前章节的详细情节提纲，并内置了爽点设计。
+2. **人物与世界观守护者 (Qwen)**：基于提纲，检查并维护人物设定和世界观的一致性。
+3. **章节主写手 (Qwen/Kimi)**：根据详细提纲和设定，撰写 3500-5500 字的章节正文。
+4. **终极审校专家 (Qwen/Kimi)**：合并了审查与润色步骤，负责检查情节逻辑、修复OOC（角色性格偏离）问题，并进行最终的语言打磨，输出定稿。
+
+### 2.3 记忆系统与长期一致性
+- **跨章节协同**：通过 `memory=True` 启用 CrewAI 记忆系统，将关键信息向量化存储。
+- **语义检索**：在执行新任务前，系统会自动召回相关历史设定（人物、伏笔等）注入上下文。
+- **存储位置**：记忆数据持久化存储在 `.crewai/data/` 目录下，不依赖会话状态。
+
+---
+
+## 3. 可控与一致性维护
+
+### 3.1 核心机制
+- **流程控制**：将长文本生成拆成 4 个核心步骤，把“不可控的长文本生成”拆成多个可控步骤。
+- **剧情圣经**：从大纲中提炼出“全局稳定信息”（世界观、境界、核心人设），作为全书统一引用的底座。
+- **长度控制**：对注入任务的大纲和圣经进行硬截断，确保 API 调用成本可控且记忆检索稳定。
+
+### 3.2 推荐的“两层大纲”写法
+1. **第一层：硬约束摘要 (前 800-1200 字)**
+   - 放置系统铁律、境界体系、主线阶段目标、人设底线、写作约束。
+   - 确保每章任务都能读到这些核心约束。
+2. **第二层：资产区 (后续内容)**
+   - 放置完整人物卡、关系网、名场面池、伏笔表。
+   - 用于支撑剧情圣经的提炼与长期记忆沉淀。
+
+### 3.3 锚点机制
+- 使用 `第N章` 作为大纲中的标题行，系统会自动按章节号抽取相关片段。
+- 即使不写每章细纲，也可以写“锚点章位”（如：第20章附近发生某事），让 AI 有明确的情节落点。
+
+---
+
+## 4. 使用教程
+
+### 4.1 快速开始
+1. **运行程序**：双击 `dist/AI_Novel_Writer.exe`（首次启动需 30-60 秒）。
+2. **配置 API**：在侧边栏「系统设置」→「API & 授权」中填入 Key 并验证。
+   - **DeepSeek**：用于大纲优化。
+   - **通义千问 (DashScope)**：用于主写、一致性维护与记忆。
+   - **Kimi**：可选，用于提高文风质量。
+3. **新建项目**：在侧边栏新建项目，粘贴大纲。
+4. **启动生成**：在「创作中心」点击「启动生成引擎」。
+
+### 4.2 模型链路模式
+- **Speed (极速模式)**：DeepSeek-V3 + Qwen-Plus，适合快速出稿。
+- **Balanced (平衡模式)**：引入 Kimi 进行润色，平衡速度与质量。
+- **Quality (最高质量模式)**：DeepSeek-R1 + Kimi K2.5 + Qwen-Max，追求顶级逻辑与文笔。
+
+---
+
+## 5. 开发者指南
+
+### 5.1 环境要求
 - Windows
-- Python >= 3.10（项目声明在 [pyproject.toml](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/pyproject.toml)）
+- Python >= 3.10
 
-### 安装与启动
-
+### 5.2 安装与启动
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-
 python -m pip install -U pip
 pip install -e .
-
-streamlit run app.py
+python run_app.py
 ```
 
-如果 PowerShell 无法激活虚拟环境（脚本策略限制）：
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-开发说明见：[docs/DEVELOPMENT.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/docs/DEVELOPMENT.md)
-
-## 文档导航
-
-- 使用指南：[docs/USAGE.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/docs/USAGE.md)
-- 一致性与可控：[docs/CONSISTENCY.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/docs/CONSISTENCY.md)
-- 架构与工作原理：[docs/ARCHITECTURE.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/docs/ARCHITECTURE.md)
-- 打包与发布：[docs/PACKAGING.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/docs/PACKAGING.md)
-- 常见问题：[docs/FAQ.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/docs/FAQ.md)
-
-历史文档（仍保留在根目录）：
-
-- [使用教程.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/使用教程.md)
-- [项目说明.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/项目说明.md)
-- [技术工作原理.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/技术工作原理.md)
-- [可控与一致性维护.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/可控与一致性维护.md)
-- [大纲模板（参考）.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/大纲模板（参考）.md)
-
-## 项目结构
-
+### 5.3 项目结构
 ```text
 AI_novel/
-├── app.py                       Streamlit UI 入口
-├── run_app.py                   本地启动脚本（EXE/源码共用）
+├── main_gui.py                  PySide6 GUI 入口
+├── gui/                         本地原生 GUI 组件
+├── run_app.py                   本地启动脚本
 ├── src/                         核心逻辑（Agent/Task/生成/导出/项目资产）
 ├── projects/                    小说项目资产目录（大纲/章节/摘要/台账/圣经）
-├── dist/                        打包产物（可选）
-├── AI_Novel_Writer.spec         PyInstaller 打包配置
-└── build_exe.bat                一键打包脚本（可选）
+├── .crewai/                     CrewAI 记忆数据目录
+├── dist/                        打包产物
+└── AI_Novel_Writer.spec         PyInstaller 打包配置
 ```
 
-## 安全提示
+---
 
-- API 配置会写入：
-  - `.api_keys.enc`（密文）
-  - `.encryption_key`（本机对称密钥）
-- 不要把上述两类文件提交到公共仓库或发送给他人。
+## 6. 安全与致谢
 
-## 致谢
-
-- CrewAI
-- Streamlit
-- LiteLLM
+- **安全提示**：API Key 加密存储在 `.api_keys.enc` 和 `.encryption_key` 中，请勿提交到公共仓库。
+- **致谢**：CrewAI, PySide6, LiteLLM, DeepSeek, 阿里云通义千问, Moonshot AI。

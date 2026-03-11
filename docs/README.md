@@ -11,12 +11,7 @@
 - [PACKAGING.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/docs/PACKAGING.md)：打包与体积优化建议
 - [FAQ.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/docs/FAQ.md)：常见问题
 
-## 项目内文档（历史/长文）
+## 项目内文档
 
-以下文档仍保留在仓库根目录，便于旧链接继续使用：
-
-- [使用教程.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/使用教程.md)
-- [项目说明.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/项目说明.md)
-- [技术工作原理.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/技术工作原理.md)
-- [可控与一致性维护.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/可控与一致性维护.md)
 - [大纲模板（参考）.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/大纲模板（参考）.md)
+- [项目思考.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/项目思考.md)

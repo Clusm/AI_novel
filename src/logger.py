@@ -4,7 +4,7 @@ from datetime import datetime
 def add_run_log(logs_list, title, content, status="info"):
     """添加运行日志"""
     timestamp = datetime.now().strftime("%H:%M:%S")
-    icon = "✅" if status == "success" else "❌" if status == "error" else "🔄"
+    icon = "✅" if status == "success" else "⚠️" if status == "warning" else "❌" if status in ("error", "danger") else "🔄"
     log_entry = f"{icon} **[{timestamp}] {title}**：{content}"
     logs_list.append(log_entry)
     return logs_list

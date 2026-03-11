@@ -1,10 +1,10 @@
 # 架构与数据流（ARCHITECTURE）
 
-本项目可以理解为三层：交互层（Streamlit UI）、编排层（CrewAI 多 Agent 流水线）、资产层（projects/ + 本地记忆库）。
+本项目可以理解为三层：交互层（PySide6 GUI）、编排层（CrewAI 多 Agent 流水线）、资产层（projects/ + 本地记忆库）。
 
 ## 模块分层
 
-- 交互层： [app.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/app.py)
+- 交互层： [main_gui.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/main_gui.py) + [gui/](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/gui)
 - 编排层： [generator.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/src/generator.py)、[agents.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/src/agents.py)、[tasks.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/src/tasks.py)
 - 资产层： [project.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/src/project.py)、`projects/<项目名>/`
 

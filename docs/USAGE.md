@@ -22,7 +22,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
 pip install -e .
-streamlit run app.py
+python run_app.py
 ```
 
 ## API 配置（首次必做）

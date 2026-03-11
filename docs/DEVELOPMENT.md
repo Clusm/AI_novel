@@ -31,21 +31,13 @@ pip install -e .
 
 ## 本地运行
 
-### 方式 A：直接运行 Streamlit
-
-```powershell
-streamlit run app.py
-```
-
-### 方式 B：通过 run_app.py 启动（与 EXE 同逻辑）
-
 ```powershell
 python run_app.py
 ```
 
 ## 代码导航
 
-- UI： [app.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/app.py)
+- UI： [main_gui.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/main_gui.py) + [gui/](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/gui)
 - Agent 定义： [agents.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/src/agents.py)
 - Task 定义： [tasks.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/src/tasks.py)
 - 章节生成与编排： [generator.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/src/generator.py)

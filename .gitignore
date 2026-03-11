@@ -21,6 +21,7 @@ exports/
 # PyInstaller 构建产物
 build/
 dist/
+Output/
 
 # 忽略运行日志
 logs/
