@@ -6,6 +6,7 @@ from html import escape
 from PySide6.QtCore import QEvent, Qt, QThread
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QComboBox,
     QDialog,
@@ -232,22 +233,20 @@ class FramelessWindowMixin:
 
 
 def detect_outline_chapters(outline_text):
-    text = outline_text or ""
-    patterns = [r"第\s*\d+\s*章", r"Chapter\s*\d+", r"章节\s*\d+", r"\d+\s*\.", r"\d+\s*-", r"\[\d+\]"]
-    detected = 0
-    for pattern in patterns:
-        detected += len(re.findall(pattern, text))
-    if detected == 0:
-        outline_length = len(text)
-        if outline_length < 100:
-            estimated = 3
-        elif outline_length < 500:
-            estimated = 5
-        elif outline_length < 1000:
-            estimated = 8
-        else:
-            estimated = 12
-        return detected, estimated
+    """(已弃用) 检测大纲中的章节数"""
+    # 保留此函数是为了兼容性，但实际上逻辑已经迁移到了 on_outline_changed 和 get_project_info 中
+    # 使用与 get_project_info 一致的逻辑
+    if not outline_text:
+        return 0, 0
+        
+    start_index = 0
+    match = re.search(r'#+\s*分卷细纲|#+\s*章节大纲', outline_text)
+    if match:
+        start_index = match.end()
+    
+    chapter_matches = re.findall(r'(?:^|\n)#*\s*第\s*\d+\s*章', outline_text[start_index:])
+    detected = len(chapter_matches)
+    
     return detected, detected
 
 
@@ -360,11 +359,22 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
             field.setMinimumHeight(40)
             
         self.route_profile = QComboBox()
-        self.route_profile.addItems(["speed", "balanced", "quality"])
+        # Mapping for display
+        self._route_map = {
+            "speed": "极速 (Speed)",
+            "balanced": "平衡 (Balanced)",
+            "quality": "质量 (Quality)"
+        }
+        self._route_map_rev = {v: k for k, v in self._route_map.items()}
+        
+        self.route_profile.addItems(list(self._route_map.values()))
         self.route_profile.setMinimumHeight(40)
+        
         route_val = keys.get("ROUTE_PROFILE", "speed")
-        if route_val in ["speed", "balanced", "quality"]:
-            self.route_profile.setCurrentText(route_val)
+        # Ensure fallback if stored value is invalid
+        if route_val not in self._route_map:
+            route_val = "speed"
+        self.route_profile.setCurrentText(self._route_map[route_val])
             
         self.writer_model = QComboBox()
         self.writer_model.addItems(["auto", "qwen", "kimi"])
@@ -372,6 +382,12 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         writer_val = keys.get("WRITER_MODEL", "auto")
         if writer_val in ["auto", "qwen", "kimi"]:
             self.writer_model.setCurrentText(writer_val)
+
+        self.memory_mode = QComboBox()
+        self.memory_mode.addItems(["关闭", "开启"])
+        self.memory_mode.setMinimumHeight(40)
+        if bool(keys.get("CREWAI_ENABLE_MEMORY", False)):
+            self.memory_mode.setCurrentText("开启")
             
         form.addRow("DeepSeek Key", self.deepseek)
         form.addRow("通义千问 Key", self.qwen)
@@ -379,6 +395,7 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         form.addRow("系统授权码", self.auth_code)
         form.addRow("路由策略", self.route_profile)
         form.addRow("主写模型", self.writer_model)
+        form.addRow("CrewAI 记忆", self.memory_mode)
         content_layout.addLayout(form)
         
         btn_layout = QHBoxLayout()
@@ -410,23 +427,27 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
 
     def save_and_test(self):
         try:
+            # Map display text back to key
+            selected_text = self.route_profile.currentText()
+            route_key = self._route_map_rev.get(selected_text, "speed")
+            
             save_api_keys(
                 self.deepseek.text().strip(),
                 self.qwen.text().strip(),
                 self.kimi.text().strip(),
                 self.auth_code.text().strip(),
-                self.route_profile.currentText(),
+                route_key,
                 self.writer_model.currentText(),
+                self.memory_mode.currentText() == "开启",
             )
             providers = ["deepseek", "qwen"]
             has_kimi = bool(self.kimi.text().strip())
-            route_profile = self.route_profile.currentText()
             writer_model = self.writer_model.currentText()
             
             kimi_required = has_kimi and (
-                route_profile in ("balanced", "quality")
+                route_key in ("balanced", "quality")
                 or writer_model == "kimi"
-                or (writer_model == "auto" and route_profile == "quality")
+                or (writer_model == "auto" and route_key == "quality")
             )
             if kimi_required:
                 providers.append("kimi")
@@ -481,9 +502,11 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.is_generating = False
         self.current_chapter_idx = 0
         self.filtered_chapters = []
+        self.all_chapters = []
         self.worker_thread = None
         self.worker = None
         self._outline_syncing = False
+        self._last_loaded_project = None
         
         self._build_ui()
         self.refresh_projects()
@@ -1029,8 +1052,32 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.chapter_words = QLabel("0 字")
         self.chapter_words.setStyleSheet("color: #64748b; font-weight: 500;")
         
+        self.btn_copy_chapter = QPushButton("📋 复制")
+        self.btn_copy_chapter.setFixedSize(60, 28)
+        self.btn_copy_chapter.setCursor(Qt.PointingHandCursor)
+        self.btn_copy_chapter.setStyleSheet("""
+            QPushButton {
+                background-color: white;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+                color: #475569;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #f1f5f9;
+                color: #334155;
+                border-color: #cbd5e1;
+            }
+            QPushButton:pressed {
+                background-color: #e2e8f0;
+            }
+        """)
+        self.btn_copy_chapter.clicked.connect(self.copy_chapter_content)
+        
         header_layout.addWidget(self.chapter_title, 1)
         header_layout.addWidget(self.chapter_words)
+        header_layout.addSpacing(12)
+        header_layout.addWidget(self.btn_copy_chapter)
         right_layout.addWidget(header)
         
         # Content
@@ -1165,42 +1212,58 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         if not enabled:
             self.main_stack.setCurrentIndex(0) # Show Welcome
             self.btn_delete_project.setEnabled(False)
+            self._last_loaded_project = None
             return
             
         self.main_stack.setCurrentIndex(1) # Show Dashboard
         self.tabs.setEnabled(True)
         self.btn_delete_project.setEnabled(True)
+        project_changed = self.selected_project != self._last_loaded_project
         
-        outline = load_outline(self.selected_project)
-        chapters = list_generated_chapters(self.selected_project)
-        detected, estimated = detect_outline_chapters(outline)
-        total_target = detected if detected > 0 else estimated
+        from src.project import get_project_info
+        
+        info = get_project_info(self.selected_project)
+        chapters = info["generated_chapters"]
+        total_planned = info.get("total_planned_chapters", 0)
+        
+        # 如果从大纲中未检测到章节，回退到原来的估算逻辑
+        if total_planned == 0:
+             outline = load_outline(self.selected_project)
+             detected, estimated = detect_outline_chapters(outline)
+             total_planned = detected if detected > 0 else estimated
+
         total_words = 0
         for chapter in chapters:
             total_words += len(load_chapter(self.selected_project, chapter))
         avg_words = int(total_words / len(chapters)) if chapters else 0
+        
         self.project_title.setText(self.selected_project)
         self.stat_cards[0].setText(str(len(chapters)))
         self.stat_cards[1].setText(f"{total_words:,}")
         self.stat_cards[2].setText(f"{avg_words:,}")
-        self.stat_cards[3].setText(str(total_target))
-        self.outline_edit.blockSignals(True)
-        self._set_outline_markdown(outline)
-        self.outline_edit.blockSignals(False)
-        if detected > 0:
-            self.chapter_detect_label.setText(f"✅ 已识别 {detected} 个章节标题")
-        else:
-            self.chapter_detect_label.setText("⚠️ 未检测到标准章节标题（建议使用第N章）")
-        self.sync_mode_ui()
+        self.stat_cards[3].setText(str(total_planned))
+        
+        # 只在首次加载或切换项目时刷新大纲显示，避免输入时重置光标
+        if project_changed:
+            outline = load_outline(self.selected_project)
+            self.outline_edit.blockSignals(True)
+            self._set_outline_markdown(outline)
+            self.outline_edit.blockSignals(False)
+            
+        self.sync_mode_ui(force_reset_start=project_changed)
         self.refresh_chapter_filter()
         self.refresh_log_view()
+        self._last_loaded_project = self.selected_project
 
     def on_outline_changed(self):
         if self._outline_syncing:
             return
         plain_text = self.outline_edit.toPlainText()
+        
+        # 实时 Markdown 渲染优化：仅当用户输入看起来像 Markdown 结构时才尝试重置
         if re.search(r"(^|\n)\s*(#{1,6}\s+|[-*]\s+|\d+\.\s+|>\s+)", plain_text):
             current_markdown = self.outline_edit.toMarkdown().strip()
+            # 简单的防抖：如果转换后的 Markdown 没变，就不重置，避免光标跳动
             if plain_text.strip() == current_markdown:
                 cursor_pos = self.outline_edit.textCursor().position()
                 self._outline_syncing = True
@@ -1209,12 +1272,23 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
                 restored.setPosition(min(cursor_pos, len(self.outline_edit.toPlainText())))
                 self.outline_edit.setTextCursor(restored)
                 self._outline_syncing = False
-        text = self.outline_edit.toMarkdown()
-        detected, _ = detect_outline_chapters(text)
+        
+        # 实时更新右侧状态栏的"预计总章数"
+        # 查找"分卷细纲"或类似的标记
+        start_index = 0
+        match = re.search(r'#+\s*分卷细纲|#+\s*章节大纲', plain_text)
+        if match:
+            start_index = match.end()
+        
+        chapter_matches = re.findall(r'(?:^|\n)#*\s*第\s*\d+\s*章', plain_text[start_index:])
+        detected = len(chapter_matches)
+        
         if detected > 0:
             self.chapter_detect_label.setText(f"✅ 已识别 {detected} 个章节标题")
+            self.stat_cards[3].setText(str(detected))
         else:
             self.chapter_detect_label.setText("⚠️ 未检测到标准章节标题（建议使用第N章）")
+            # 如果没检测到，保持原来的估算值或显示0，这里暂不更新以免跳变太快
 
     def _set_outline_markdown(self, text):
         self._outline_syncing = True
@@ -1290,7 +1364,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         QMessageBox.information(self, "保存成功", "大纲已保存")
         self.reload_project_data()
 
-    def sync_mode_ui(self):
+    def sync_mode_ui(self, force_reset_start=False):
         if not self.selected_project:
             self.spin_start.setVisible(True)
             self.smart_hint.setText("⚠️ 请先在左侧选择或创建项目")
@@ -1305,7 +1379,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         
         # Don't auto-reset start if already set by user interaction, 
         # unless it's the first load or invalid
-        if self.spin_start.value() <= max_chap:
+        if force_reset_start or self.spin_start.value() <= max_chap:
             self.spin_start.setValue(max_chap + 1)
             
         # Connect spin count change to update hint
@@ -1443,10 +1517,12 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
 
     def refresh_chapter_filter(self):
         if not self.selected_project:
+            self.all_chapters = []
             self.filtered_chapters = []
             self.chapter_combo.clear()
             return
         all_chapters = list_generated_chapters(self.selected_project)
+        self.all_chapters = all_chapters
         keyword = self.chapter_search.text().strip()
         self.filtered_chapters = [c for c in all_chapters if keyword in c] if keyword else all_chapters
         self.chapter_combo.blockSignals(True)
@@ -1475,21 +1551,62 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
     def move_chapter(self, offset):
         if not self.filtered_chapters:
             return
-        self.current_chapter_idx += offset
-        self.current_chapter_idx = max(0, min(self.current_chapter_idx, len(self.filtered_chapters) - 1))
+        current_file = self.filtered_chapters[self.current_chapter_idx]
+        if not self.all_chapters or current_file not in self.all_chapters:
+            return
+        full_idx = self.all_chapters.index(current_file)
+        target_full_idx = max(0, min(full_idx + offset, len(self.all_chapters) - 1))
+        target_file = self.all_chapters[target_full_idx]
+        if self.chapter_search.text().strip():
+            self.chapter_search.clear()
+        if target_file not in self.filtered_chapters:
+            return
+        self.current_chapter_idx = self.filtered_chapters.index(target_file)
         self.chapter_combo.setCurrentIndex(self.current_chapter_idx)
         self.show_current_chapter()
 
     def show_current_chapter(self):
         if not self.filtered_chapters:
+            self.btn_copy_chapter.setEnabled(False)
             return
         chapter_file = self.filtered_chapters[self.current_chapter_idx]
         content = load_chapter(self.selected_project, chapter_file)
         self.chapter_title.setText(chapter_file.replace(".md", ""))
         self.chapter_words.setText(f"{len(content)} 字")
         self.chapter_content.setMarkdown(content)
+        self.btn_copy_chapter.setEnabled(True)
+        if self.all_chapters and chapter_file in self.all_chapters:
+            full_idx = self.all_chapters.index(chapter_file)
+            self.btn_prev.setEnabled(full_idx > 0)
+            self.btn_next.setEnabled(full_idx < len(self.all_chapters) - 1)
+            return
         self.btn_prev.setEnabled(self.current_chapter_idx > 0)
         self.btn_next.setEnabled(self.current_chapter_idx < len(self.filtered_chapters) - 1)
+
+    def copy_chapter_content(self):
+        content = self.chapter_content.toPlainText()
+        if not content:
+            return
+        
+        clipboard = QApplication.clipboard()
+        clipboard.setText(content)
+        
+        # Show a temporary success state on the button
+        original_text = self.btn_copy_chapter.text()
+        self.btn_copy_chapter.setText("✅ 已复制")
+        self.btn_copy_chapter.setEnabled(False)
+        
+        def restore():
+            try:
+                self.btn_copy_chapter.setText(original_text)
+                self.btn_copy_chapter.setEnabled(True)
+            except RuntimeError:
+                # Handle case where widget might be deleted
+                pass
+                
+        # Restore button text after 1.5 seconds
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(1500, restore)
 
     def clear_logs_clicked(self):
         clear_run_logs(self.run_logs)

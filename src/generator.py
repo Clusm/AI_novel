@@ -5,7 +5,17 @@ OpenAI 兼容 embedding 接口，与现有 DeepSeek / Kimi / 千问 三个 API �
 """
 
 import os
+import sys
 import queue
+
+# 修复 Windows 下 ChromaDB 需要 sqlite3 >= 3.35 的问题
+if sys.platform == "win32":
+    try:
+        import pysqlite3
+        sys.modules["sqlite3"] = pysqlite3
+    except ImportError:
+        pass
+
 # 彻底禁用 CrewAI 的 Telemetry 和 Tracing，防止网络阻塞或提示干扰
 os.environ["CREWAI_TELEMETRY_OPT_OUT"] = "true"
 os.environ["CREWAI_TRACING_ENABLED"] = "false"
@@ -30,6 +40,7 @@ from src.project import (
     save_canon_entry,
     load_recent_canon_entries,
 )
+from src.workspace import workspace_manager
 from src.api import load_api_keys
 from datetime import datetime
 import hashlib
@@ -57,7 +68,7 @@ def get_embedder_config():
         "config": {
             "api_key": api_key,
             "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "model_name": "text-embedding-v3",
+            "model": "text-embedding-v3",
         },
     }
 
@@ -139,6 +150,30 @@ def _normalize_summary(chapter_number: int, summary_text: str, max_chars: int = 
     if not summary.startswith("#"):
         summary = f"# 第{chapter_number}章摘要\n\n{summary}"
     return _clamp(summary, max_chars)
+
+
+def _generate_summary_via_llm(content: str, llm, max_chars: int = 900) -> str:
+    """使用 LLM 生成高质量章节摘要"""
+    prompt = f"""
+请为以下章节正文生成一份高质量的摘要，主要目的是**指导下一章的续写**。
+请务必包含以下要素，并保持条理清晰：
+
+1. **本章核心情节**：发生了什么主要事件？主角的目标是否达成？
+2. **关键信息与伏笔**：揭示了哪些重要信息？埋下了什么伏笔？
+3. **角色状态变更**：主角及关键配角的状态、位置、资源、人际关系有何变化？
+4. **不可逆事实**：本章确立了哪些不可更改的设定或事实（如死亡、物品消耗、地点毁灭等）？
+5. **下一章承接锚点**：故事在何处戛然而止？下一章应从哪里接续？
+
+正文内容：
+{content[:15000]} ... (内容过长已截断)
+
+请输出 Markdown 格式的摘要，字数控制在 {max_chars} 字以内。
+"""
+    try:
+        response = llm.call([{"role": "user", "content": prompt}])
+        return _clamp(response, max_chars)
+    except Exception as e:
+        return ""
 
 
 def _count_body_chars(text: str) -> int:
@@ -350,7 +385,7 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
     }
 
     # 设置项目专属的CrewAI存储目录
-    project_storage_dir = os.path.join("projects", project_name, ".crewai")
+    project_storage_dir = os.path.join(workspace_manager.get_projects_dir(), project_name, ".crewai")
     os.makedirs(project_storage_dir, exist_ok=True)
     # 保存原本的存储目录以便恢复（可选，但在单用户场景下直接覆盖即可）
     os.environ["CREWAI_STORAGE_DIR"] = os.path.abspath(project_storage_dir)
@@ -437,8 +472,20 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             recent_canon_text="\n\n".join(load_recent_canon_entries(project_name, limit=5)),
             log_callback=log_callback,
         )
+        keys = load_api_keys()
         embedder = get_embedder_config()
-        default_memory_enabled = (os.getenv("CREWAI_ENABLE_MEMORY", "false").lower() == "true") and (embedder is not None)
+        configured_memory_enabled = bool(keys.get("CREWAI_ENABLE_MEMORY", False))
+        memory_env = os.getenv("CREWAI_ENABLE_MEMORY")
+        if memory_env is not None:
+            configured_memory_enabled = memory_env.lower() == "true"
+        default_memory_enabled = configured_memory_enabled and (embedder is not None)
+        if log_callback:
+            if default_memory_enabled:
+                log_callback("🧠 CrewAI Memory 已启用（向量记忆可参与召回）", status="info")
+            elif configured_memory_enabled and embedder is None:
+                log_callback("⚠️ 已开启 CrewAI Memory，但未检测到通义千问 Key，已自动关闭本次记忆", status="warning")
+            else:
+                log_callback("ℹ️ CrewAI Memory 当前关闭（使用剧情圣经+摘要+台账链路）", status="info")
 
         def _run_pipeline(compact_mode: bool, memory_enabled: bool):
             tasks = create_tasks(
@@ -598,8 +645,18 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
         save_canon_entry(project_name, chapter_number, _build_canon_ledger(int(chapter_number), final_content))
         summary_max_chars = int(os.getenv("CHAPTER_SUMMARY_MAX_CHARS", "900"))
         summary_content = _normalize_summary(int(chapter_number), summary_block, max_chars=summary_max_chars)
+        
+        if not summary_content:
+            if log_callback:
+                log_callback("📝 正在使用 LLM 生成高质量章节摘要...", status="info")
+            # Use editor LLM (agents[3]) if available, otherwise writer (agents[2]) or first
+            target_llm = agents[3].llm if len(agents) > 3 else agents[0].llm
+            summary_content = _generate_summary_via_llm(final_content, target_llm, max_chars=summary_max_chars)
+            
+        # Fallback to regex if LLM fails or returns empty
         if not summary_content:
             summary_content = _build_chapter_summary(chapter_number, final_content, max_chars=summary_max_chars)
+            
         save_chapter_summary(project_name, chapter_number, summary_content, max_chars=summary_max_chars)
         
         if log_callback:

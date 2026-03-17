@@ -41,7 +41,7 @@ UI 输入大纲（保存到 projects/<项目名>/大纲.md）
 - `canon/`：事实台账（不可逆事实/状态变更/资源变更/锚点）
 - `logs/`：运行日志
 
-更详细的长文说明见：
+更详细的说明请参考：
 
-- [项目说明.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/项目说明.md)
-- [技术工作原理.md](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/技术工作原理.md)
+- [USAGE.md](USAGE.md)
+- [README.md](../README.md)

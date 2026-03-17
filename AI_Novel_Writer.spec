@@ -4,7 +4,6 @@ from PyInstaller.utils.hooks import collect_all
 datas = [('src', 'src')]
 binaries = []
 hiddenimports = ['litellm', 'tiktoken_ext.openai_public', 'tiktoken_ext']
-
 tmp_ret = collect_all('crewai')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('chromadb')

@@ -3,12 +3,15 @@ import json
 from datetime import datetime
 
 from src.project import load_project_config, load_outline, list_generated_chapters, load_chapter
+from src.workspace import workspace_manager
 
 
 def export_to_txt(project_name, output_path=None):
     """导出为TXT格式"""
     if output_path is None:
-        output_path = f"{project_name}_{datetime.now().strftime('%Y%m%d')}.txt"
+        export_dir = os.path.join(workspace_manager.get_projects_dir(), project_name, "export")
+        os.makedirs(export_dir, exist_ok=True)
+        output_path = os.path.join(export_dir, f"{project_name}_{datetime.now().strftime('%Y%m%d')}.txt")
     
     # 加载项目信息
     config = load_project_config(project_name)
@@ -47,7 +50,9 @@ def export_to_word(project_name, output_path=None):
         raise ImportError("导出 Word 功能需要安装 python-docx 库。请运行: pip install python-docx")
 
     if output_path is None:
-        output_path = f"{project_name}_{datetime.now().strftime('%Y%m%d')}.docx"
+        export_dir = os.path.join(workspace_manager.get_projects_dir(), project_name, "export")
+        os.makedirs(export_dir, exist_ok=True)
+        output_path = os.path.join(export_dir, f"{project_name}_{datetime.now().strftime('%Y%m%d')}.docx")
     
     # 创建Word文档
     doc = Document()
@@ -86,7 +91,9 @@ def export_to_epub(project_name, output_path=None):
         raise ImportError("导出 EPUB 功能需要安装 ebooklib 库。请运行: pip install ebooklib")
 
     if output_path is None:
-        output_path = f"{project_name}_{datetime.now().strftime('%Y%m%d')}.epub"
+        export_dir = os.path.join(workspace_manager.get_projects_dir(), project_name, "export")
+        os.makedirs(export_dir, exist_ok=True)
+        output_path = os.path.join(export_dir, f"{project_name}_{datetime.now().strftime('%Y%m%d')}.epub")
     
     # 创建EPUB书籍
     book = epub.EpubBook()

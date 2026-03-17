@@ -2,10 +2,23 @@ import json
 import litellm
 import base64
 import os
+import sys
 from cryptography.fernet import Fernet
 
-API_KEYS_FILE = ".api_keys.enc"
-KEY_FILE = ".encryption_key"
+# User config file location
+if sys.platform == "win32":
+    CONFIG_DIR = os.path.join(os.environ["APPDATA"], "AI_Novel_Writer")
+else:
+    CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "ai_novel_writer")
+
+if not os.path.exists(CONFIG_DIR):
+    try:
+        os.makedirs(CONFIG_DIR)
+    except Exception:
+        pass
+
+API_KEYS_FILE = os.path.join(CONFIG_DIR, ".api_keys.enc")
+KEY_FILE = os.path.join(CONFIG_DIR, ".encryption_key")
 BASE_PROVIDER_CONFIG = {
     "deepseek": {
         "model": "openai/deepseek-chat",
@@ -40,20 +53,13 @@ def get_encryption_key():
         key = Fernet.generate_key()
         with open(KEY_FILE, "wb") as f:
             f.write(key)
+        return key
     else:
         with open(KEY_FILE, "rb") as f:
-            key = f.read()
-    return key
+            return f.read()
 
 
-def save_api_keys(
-    deepseek,
-    qwen,
-    kimi,
-    auth_code="",
-    route_profile="speed",
-    writer_model="auto",
-):
+def save_api_keys(deepseek, qwen, kimi, auth_code="", route_profile="speed", writer_model="auto", crewai_enable_memory=False):
     """保存API Key（加密）"""
     keys = {
         "DEEPSEEK_API_KEY": deepseek,
@@ -62,6 +68,7 @@ def save_api_keys(
         "AUTH_CODE": auth_code,
         "ROUTE_PROFILE": route_profile,
         "WRITER_MODEL": writer_model,
+        "CREWAI_ENABLE_MEMORY": bool(crewai_enable_memory),
     }
     
     key = get_encryption_key()
@@ -83,17 +90,30 @@ def load_api_keys():
                 "AUTH_CODE": "",
                 "ROUTE_PROFILE": "speed",
                 "WRITER_MODEL": "auto",
+                "CREWAI_ENABLE_MEMORY": False,
             }
         
+        key = get_encryption_key()
         with open(API_KEYS_FILE, "rb") as f:
             encrypted_data = f.read()
         
-        key = get_encryption_key()
         fernet = Fernet(key)
         decrypted_data = fernet.decrypt(encrypted_data)
         keys = json.loads(decrypted_data.decode())
         
-        return keys
+        memory_val = keys.get("CREWAI_ENABLE_MEMORY", False)
+        if isinstance(memory_val, str):
+            memory_val = memory_val.lower() == "true"
+        # 兼容旧版本 key 结构
+        return {
+            "DEEPSEEK_API_KEY": keys.get("DEEPSEEK_API_KEY", ""),
+            "DASHSCOPE_API_KEY": keys.get("DASHSCOPE_API_KEY", ""),
+            "MOONSHOT_API_KEY": keys.get("MOONSHOT_API_KEY", ""),
+            "AUTH_CODE": keys.get("AUTH_CODE", ""),
+            "ROUTE_PROFILE": keys.get("ROUTE_PROFILE", "speed"),
+            "WRITER_MODEL": keys.get("WRITER_MODEL", "auto"),
+            "CREWAI_ENABLE_MEMORY": bool(memory_val),
+        }
     except Exception:
         return {
             "DEEPSEEK_API_KEY": "",
@@ -102,6 +122,7 @@ def load_api_keys():
             "AUTH_CODE": "",
             "ROUTE_PROFILE": "speed",
             "WRITER_MODEL": "auto",
+            "CREWAI_ENABLE_MEMORY": False,
         }
 
 

@@ -1,6 +1,7 @@
 import os
 import json
 import sys
+import ctypes
 from pathlib import Path
 
 # User config file location
@@ -53,8 +54,29 @@ class WorkspaceManager:
         
     def get_projects_dir(self):
         if not self.workspace_path:
-            # Fallback to local directory if not set (though UI should prevent this)
-            return os.path.abspath("projects")
+            # Fallback to user documents directory to avoid permission issues in Program Files
+            try:
+                if sys.platform == "win32":
+                    import ctypes.wintypes
+                    CSIDL_PERSONAL = 5       # My Documents
+                    SHGFP_TYPE_CURRENT = 0   # Get current, not default value
+                    buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
+                    ctypes.windll.shell32.SHGetFolderPathW(None, CSIDL_PERSONAL, None, SHGFP_TYPE_CURRENT, buf)
+                    docs_dir = buf.value
+                else:
+                    docs_dir = os.path.join(os.path.expanduser("~"), "Documents")
+            except Exception:
+                docs_dir = os.path.join(os.path.expanduser("~"), "Documents")
+
+            default_workspace = os.path.join(docs_dir, "AI_Novel_Projects")
+            
+            # If we are falling back, let's try to set it as the default workspace
+            # so the user knows where their files are going.
+            self.workspace_path = default_workspace
+            self.save_config()
+            
+            return os.path.join(self.workspace_path, "projects")
+            
         return os.path.join(self.workspace_path, "projects")
 
 # Global instance

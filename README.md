@@ -74,7 +74,7 @@
 ## 4. 使用教程
 
 ### 4.1 快速开始
-1. **运行程序**：双击 `dist/AI_Novel_Writer.exe`（首次启动需 30-60 秒）。
+1. **安装程序**：运行 `Output/AI_Novel_Writer_Setup_v2.4.exe` 进行安装，或直接运行 `dist/AI_Novel_Writer/AI_Novel_Writer.exe`。
 2. **配置 API**：在侧边栏「系统设置」→「API & 授权」中填入 Key 并验证。
    - **DeepSeek**：用于大纲优化。
    - **通义千问 (DashScope)**：用于主写、一致性维护与记忆。

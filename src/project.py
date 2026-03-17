@@ -268,10 +268,27 @@ def get_project_info(project_name):
     """获取项目信息"""
     config = load_project_config(project_name)
     chapters = list_generated_chapters(project_name)
+    
+    # 尝试从大纲中统计计划章节数（仅统计分卷细纲后的章节）
+    outline = load_outline(project_name)
+    planned_chapters = 0
+    if outline:
+        # 查找"分卷细纲"或类似的标记，如果没有则从头统计
+        start_index = 0
+        match = re.search(r'#+\s*分卷细纲|#+\s*章节大纲', outline)
+        if match:
+            start_index = match.end()
+        
+        # 统计形如 "### 第X章" 或 "第X章" 的行
+        # 使用更严格的正则避免误判
+        chapter_matches = re.findall(r'(?:^|\n)#*\s*第\s*\d+\s*章', outline[start_index:])
+        planned_chapters = len(chapter_matches)
+
     return {
         "name": config.get("name", project_name),
         "created_at": config.get("created_at"),
         "last_modified": config.get("last_modified"),
         "total_chapters": len(chapters),
+        "total_planned_chapters": planned_chapters,
         "generated_chapters": chapters
     }

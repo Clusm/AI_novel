@@ -1,64 +1,62 @@
-# 打包与发布（PACKAGING）
+# 打包与发布指南 (PACKAGING)
 
-本项目当前使用 PyInstaller 打包为 Windows 可执行文件（EXE）。由于依赖栈较重（CrewAI + ChromaDB + 导出组件），onefile 体积会明显偏大。
+本项目使用 **PyInstaller (onedir 模式)** + **Inno Setup** 的组合方式进行打包发布。这种方式生成的安装包体验更专业，启动速度更快，且更易于分发。
 
-## 当前打包方式（onefile）
+---
 
-核心配置文件：
+## 1. 核心配置文件
 
-- [AI_Novel_Writer.spec](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/AI_Novel_Writer.spec)
+- **PyInstaller 配置**: `AI_Novel_Writer.spec`
+  - 模式: `onedir` (生成包含 EXE 和依赖文件的文件夹)
+  - 入口: `run_app.py`
+  - 包含资源: `src/`, `gui/`, 以及 CrewAI/ChromaDB 等核心库的资源文件
+- **Inno Setup 脚本**: `AI_Novel_Writer.iss`
+  - 输入: `dist/AI_Novel_Writer/` 目录
+  - 输出: `Output/AI_Novel_Writer_Setup_vX.X.exe` 安装包
 
-特征：
+---
 
-- `onefile`：生成单个 EXE，首次启动会解压依赖，启动慢但分发简单
-- `collect_all()`：对 crewai / chromadb / langchain / tiktoken / litellm / docx / ebooklib 等进行资源收集，体积增长明显
-- `upx=True`：能压缩一部分体积，但对某些二进制依赖的收益有限
+## 2. 打包步骤
 
-## 降体积的推荐路线
+### 第一步：构建可执行文件目录 (PyInstaller)
 
-### 路线 A：onedir + 安装包（推荐）
+在项目根目录下运行：
 
-思路：
+```powershell
+# 确保已激活虚拟环境
+.\.venv\Scripts\Activate.ps1
 
-- 先用 PyInstaller 生成 `onedir` 目录版（EXE + 依赖文件夹）
-- 再用安装包工具（Inno Setup / NSIS / WiX）制作“点击安装”的安装程序
-- 安装程序负责：
-  - 复制文件到 `{localappdata}\Programs\AI_Novel_Writer` 或 `Program Files`
-  - 创建开始菜单与桌面快捷方式
+# 清理旧构建 (可选，推荐)
+Remove-Item -Recurse -Force dist, build
 
-收益：
+# 执行打包
+pyinstaller AI_Novel_Writer.spec
+```
 
-- 启动速度更快（不需要每次自解压）
-- 安装体验更像“正式软件”
-- 总体体积不一定变小，但分发更可控，用户感知更好
+成功后，你将在 `dist/AI_Novel_Writer/` 目录下看到 `AI_Novel_Writer.exe` 和大量依赖文件。你可以直接运行该 EXE 进行测试。
 
-### 路线 B：继续 onefile，但做依赖裁剪（高级）
+### 第二步：制作安装包 (Inno Setup)
 
-思路：
+1. 确保已安装 [Inno Setup](https://jrsoftware.org/isdl.php)。
+2. 右键点击项目根目录下的 `AI_Novel_Writer.iss`，选择 **"Compile"**。
+3. 或者在命令行运行：
+   ```powershell
+   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" AI_Novel_Writer.iss
+   ```
 
-- 尽量减少 `collect_all()` 的范围与 hiddenimports
-- 排除不需要的可选依赖（例如：不用某些导出格式就去掉相关库）
+编译完成后，安装包将生成在 `Output/` 目录下，例如 `AI_Novel_Writer_Setup_v2.4.exe`。
 
-风险：
+---
 
-- 裁剪过度会导致运行时 ImportError，排查成本高
+## 3. 常见问题 (FAQ)
 
-## 可执行体积为什么会大
+### Q: 为什么不用 `onefile` (单文件 EXE)?
+A: `onefile` 模式在启动时需要解压所有依赖到临时目录，导致启动非常缓慢（尤其是包含 CrewAI/ChromaDB 这种大型库时，启动可能需要 30-60 秒）。`onedir` 模式启动极快，且配合安装包使用体验更好。
 
-主要原因：
+### Q: 打包后体积为什么很大？
+A: 项目依赖了 CrewAI、LangChain、ChromaDB 等 AI 框架，这些库本身体积较大且包含许多二进制依赖（如 SQLite, NumPy 等）。这是正常现象。
 
-- CrewAI/ChromaDB/向量检索相关依赖体积大
-- 文档导出依赖（python-docx、ebooklib、pypandoc 等）会额外引入资源
-- Windows 下的 python runtime、扩展模块、证书等都会打入包内
-
-## 构建建议
-
-- 生成环境尽量干净：只安装本项目依赖，避免把无关包打进产物
-- 确认 `dist/` 与 `build/` 中间产物在打包前清理干净
-- 打包失败提示“拒绝访问”：检查目标 EXE 是否正在运行
-
-与 EXE 启动相关的逻辑在：
-
-- [run_app.py](file:///c:/Users/Tao/Documents/trae_projects/AI_novel/run_app.py)
-
-它负责在 EXE 模式下启动 PySide6 应用程序。
+### Q: 运行报错 "Permission denied"?
+A: 请确保：
+1. 没有其他程序（如 VS Code, 终端）正在占用 `dist/` 目录下的文件。
+2. 安装后运行时，程序会尝试写入用户数据。我们已将数据存储路径迁移至 `%APPDATA%\AI_Novel_Writer` 和 `Documents\AI_Novel_Projects`，避免写入 `Program Files` 导致的权限问题。
