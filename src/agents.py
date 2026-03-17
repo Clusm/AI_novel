@@ -96,7 +96,7 @@ def create_agents():
     # 3. 章节主写手 (原Agent 4)
     agent_writer = Agent(
         role="章节主写手",
-        goal="根据最新大纲 + 人物卡写出3500-5500字正文",
+        goal="根据最新大纲 + 人物卡写出符合字数要求的正文",
         backstory="你是一位高产的网文作家，文笔流畅，代入感强，擅长写精彩的情节。",
         llm=writer_llm,
         verbose=True,

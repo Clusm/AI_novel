@@ -1,4 +1,5 @@
 from crewai import Task
+import os
 import re
 
 # CrewAI 记忆检索时会把「任务 description + context」整段作为 query 发给 Embedding API。
@@ -99,8 +100,12 @@ def create_tasks(
     previous_chapter_content="",
     canon_context="",
     compact_mode=False,
+    writing_style="standard",
 ):
-    """为6个Agent创建任务"""
+    """
+    为6个Agent创建任务
+    writing_style: 'standard' (默认/传统) 或 'tomato' (番茄/新媒体/快节奏)
+    """
     tasks = []
 
     bible_for_desc = (story_bible or "").strip()
@@ -109,10 +114,10 @@ def create_tasks(
 
     outline_excerpt, is_detailed_outline = _extract_outline_excerpt(user_outline, current_chapter, OUTLINE_EXCERPT_MAX_CHARS)
 
-    # 上一章内容（用于保持连贯性）
+    # 上一章承接信息（用于保持连贯性）
     prev_info = ""
     if previous_chapter_content:
-        prev_info = f"\n\n【上一章内容摘要】:\n{previous_chapter_content[:1000]}..."
+        prev_info = f"\n\n【上一章承接信息（只用于无缝接续，禁止复述前情）】\n{previous_chapter_content.strip()}"
     
     base_context = ""
     if bible_for_desc:
@@ -120,6 +125,67 @@ def create_tasks(
     if canon_context:
         base_context += f"\n\n【最近章节事实台账（强连续性输入）】\n{canon_context[:1800]}"
     
+    # 风格化指令注入
+    style_instruction = ""
+    outline_style_instruction = ""
+    guardian_style_instruction = ""
+    writer_style_instruction = ""
+    finalizer_style_instruction = ""
+    if writing_style == "tomato":
+        min_chars = int(os.getenv("CHAPTER_MIN_CHARS_TOMATO", "2100"))
+        max_chars = int(os.getenv("CHAPTER_MAX_CHARS_TOMATO", "2600"))
+    else:
+        min_chars = int(os.getenv("CHAPTER_MIN_CHARS", "3500"))
+        max_chars = int(os.getenv("CHAPTER_MAX_CHARS", "5500"))
+    if max_chars < min_chars:
+        max_chars = min_chars + 200
+    if writing_style == "tomato":
+        style_instruction = (
+            "\n\n【文风要求：番茄/新媒体/快节奏模式】\n"
+            "1. 节奏极快：开章100字内必须出现冲突/刺激点；拒绝慢热铺垫。\n"
+            "2. 爽点密度：每500字至少一个情绪点（震惊/打脸/危机/反转/奖励）。\n"
+            "3. 语言克制：以动作与对白推动；少形容词、少抒情长段；拒绝谜语人、拒绝堆设定解释。\n"
+            "4. 结构适配：短句短段，单句成段；每段尽量不超过80字，利于手机阅读。\n"
+            "5. 断章钩子：章末必须留明确悬念或下一步行动目标。\n"
+        )
+        outline_style_instruction = (
+            "\n\n【提纲输出要求（番茄模式加严）】\n"
+            "1) 给出“开头钩子”（1-3句，直接冲突/对白起笔）；\n"
+            "2) 给出“爽点节奏表”，按每500字一个节点列出：触发点/情绪点/推进结果；\n"
+            "3) 给出“章末断章点”（一句话）；\n"
+        )
+        guardian_style_instruction = (
+            "\n\n【守护者输出要求（番茄模式加严）】\n"
+            "1) 输出极简清单：每条不超过20字；\n"
+            "2) 标出本章关键冲突点与情绪锚点；\n"
+            "3) 不要展开长篇设定解释。\n"
+        )
+        writer_style_instruction = (
+            "\n\n【写作执行要求（番茄模式加严）】\n"
+            "1) 章首用动作/对白/冲突起笔；\n"
+            "2) 每300-600字推进一次冲突或信息增量；\n"
+            "3) 多对白少独白，段落短；\n"
+            "4) 章末留钩子（危机/奖励/转折/任务）。\n"
+        )
+        finalizer_style_instruction = (
+            "\n\n【终审调整重点（番茄模式加严）】\n"
+            "1) 删除拖节奏的环境/抒情长段；\n"
+            "2) 合并冗余解释，把信息塞进对白与动作；\n"
+            "3) 强化章首钩子与章末悬念；\n"
+            "4) 保持短段阅读体验。\n"
+        )
+    else:
+        style_instruction = (
+            "\n\n【文风要求：传统/正剧模式】\n"
+            "1. 节奏稳健：注重逻辑铺垫与草蛇灰线，情节推进要有合理性。\n"
+            "2. 沉浸体验：适当的环境渲染与心理刻画，增强代入感。\n"
+            "3. 逻辑严密：世界观与战力体系要自洽，拒绝无脑爽文套路。\n"
+        )
+        outline_style_instruction = ""
+        guardian_style_instruction = ""
+        writer_style_instruction = ""
+        finalizer_style_instruction = ""
+
     # 1. 大纲动态优化师任务 (根据是否已有详细大纲决定是否跳过)
     outline_source = "大纲优化师生成的提纲"
     
@@ -139,6 +205,8 @@ def create_tasks(
                 f"要求：\n"
                 f"1. 包含章节目标、主要情节、伏笔安排。\n"
                 f"2. 【重要】在每个关键情节段落后，直接标注本段的【爽点类型】与【期待感来源】（例如：#爽点：扮猪吃虎；#期待：反派震惊）。\n"
+                f"{style_instruction}"
+                f"{outline_style_instruction}"
                 f"{base_context}{prev_info}"
             ),
             agent=agents[0],
@@ -152,6 +220,7 @@ def create_tasks(
             f"基于{outline_source}，提取本章出场的主要人物与关键设定，生成一份简明的人物卡与设定检查表。\n"
             f"重点关注：人物动机、性格特征、能力限制以及本章涉及的核心世界观规则。\n"
             f"请直接输出 Markdown 内容，无需解释思考过程。\n{prev_info}"
+            f"{style_instruction}{guardian_style_instruction}"
         ),
         agent=agents[1],
         expected_output="本章相关的人物卡快照与世界观设定检查表（Markdown格式）"
@@ -160,12 +229,13 @@ def create_tasks(
     
     # 3. 章节主写手任务 (原Task 4)
     writer_instruction = (
-        "根据所有准备工作撰写3500-5500字正文。\n"
+        f"根据所有准备工作撰写{min_chars}-{max_chars}字正文。\n"
         "强制要求：\n"
+        "0. 开头必须直接进入场景（动作/对白/冲突），禁止用“回顾/复盘/前情提要”式叙述；禁止出现‘上一章/上回/回想/不久前/转眼/与此同时’等总结承接句；禁止使用通用开场白（如天色/夜色/时间飞逝/几日后/一夜之间）。\n"
         "1. 必须承接上一章末状态，并在本章前20%篇幅落地。\n"
         "2. 不得让角色状态回滚、瞬移、突然知道未出现信息。\n"
         "3. 不得引入未交代的新核心设定替代既有设定。\n"
-        "4. 【硬性字数】正文（不含摘要块）必须≥3500字。\n"
+        f"4. 【硬性字数】正文（不含摘要块）必须≥{min_chars}字。\n"
         "4. 正文结束后追加摘要块，格式必须严格如下：\n"
         "[SUMMARY_BEGIN]\n"
         "本章目标达成：...\n"
@@ -175,13 +245,16 @@ def create_tasks(
         "新增/回收伏笔：...\n"
         "下一章承接锚点：...\n"
         "[SUMMARY_END]\n"
+        f"{style_instruction}"
+        f"{writer_style_instruction}"
         f"{base_context}{prev_info}"
     )
     if compact_mode:
         writer_instruction = (
             "根据提纲与人物设定直接写出完整正文并保证节奏紧凑。\n"
+            "开头必须直接进入场景（动作/对白/冲突），禁止复述前情与通用开场白。\n"
             "强制要求：承接上一章末状态；保持人设与世界观一致；不得新增未铺垫核心设定。\n"
-            "【硬性字数】正文（不含摘要块）必须≥3500字。\n"
+            f"【硬性字数】正文（不含摘要块）必须≥{min_chars}字。\n"
             "正文结束后追加摘要块，格式必须严格如下：\n"
             "[SUMMARY_BEGIN]\n"
             "本章目标达成：...\n"
@@ -191,12 +264,14 @@ def create_tasks(
             "新增/回收伏笔：...\n"
             "下一章承接锚点：...\n"
             "[SUMMARY_END]\n"
+            f"{style_instruction}"
+            f"{writer_style_instruction}"
             f"{base_context}{prev_info}"
         )
     task3 = Task(
         description=writer_instruction,
         agent=agents[2],
-        expected_output="完整的章节正文（3500-5500字）"
+        expected_output=f"完整的章节正文（{min_chars}-{max_chars}字）"
     )
     tasks.append(task3)
     
@@ -211,8 +286,11 @@ def create_tasks(
         "A. 输出必须包含章节标题，格式为 Markdown 一级标题，例如：# 第N章 章节名；\n"
         "B. 正文中禁止出现任何情节分段标题（如 ##/###/####，或行首'一、二、三、...'小标题）；\n"
         "C. 必须移除写手附加的摘要块（[SUMMARY_BEGIN]... [SUMMARY_END]），最终输出不包含该区块；\n"
-        "D. 【硬性字数】最终正文必须≥3500字；不足则在不改剧情的前提下扩写补足。\n"
+        f"D. 【硬性字数】最终正文必须≥{min_chars}字；不足则在不改剧情的前提下扩写补足。\n"
         "E. 只输出最终正文，不要输出检查过程。\n"
+        "F. 如果开头出现复述前情/模板化开场白，请直接改写为动作或对白起笔的承接开头。\n"
+        f"{style_instruction}"
+        f"{finalizer_style_instruction}"
         f"{base_context}{prev_info}"
     )
     task4 = Task(

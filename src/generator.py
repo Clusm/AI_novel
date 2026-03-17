@@ -7,6 +7,7 @@ OpenAI 兼容 embedding 接口，与现有 DeepSeek / Kimi / 千问 三个 API �
 import os
 import sys
 import queue
+from difflib import SequenceMatcher
 
 # 修复 Windows 下 ChromaDB 需要 sqlite3 >= 3.35 的问题
 if sys.platform == "win32":
@@ -36,6 +37,7 @@ from src.project import (
     save_project_config,
     load_story_bible,
     save_story_bible,
+    load_chapter,
     load_chapter_summary,
     save_canon_entry,
     load_recent_canon_entries,
@@ -243,6 +245,160 @@ def _sanitize_final_content(content: str, chapter_number: int) -> str:
     if cleaned_body:
         return f"{title}\n\n{cleaned_body}\n"
     return f"{title}\n"
+
+
+def _chapter_body_without_title(text: str) -> str:
+    raw = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    raw, _ = _extract_summary_block(raw)
+    raw = re.sub(r"^#.*\n?", "", raw).lstrip()
+    return raw
+
+
+def _chapter_opening_for_similarity(text: str, max_chars: int = 520) -> str:
+    body = _chapter_body_without_title(text)
+    if not body:
+        return ""
+    parts = [p.strip() for p in body.split("\n\n") if p.strip()]
+    if not parts:
+        return ""
+    snippet = ""
+    for p in parts:
+        if not snippet:
+            snippet = p
+        elif len(snippet) < max_chars:
+            snippet = snippet + "\n\n" + p
+        if len(snippet) >= max_chars:
+            break
+    return snippet[:max_chars]
+
+
+def _chapter_tail_for_context(text: str, max_chars: int = 1200) -> str:
+    body = _chapter_body_without_title(text)
+    if not body:
+        return ""
+    body = body.strip()
+    if len(body) <= max_chars:
+        return body
+    return body[-max_chars:]
+
+
+def _normalize_similarity_text(text: str) -> str:
+    t = (text or "").strip()
+    if not t:
+        return ""
+    t = re.sub(r"\s+", "", t)
+    t = re.sub(r"[“”\"'‘’]", "", t)
+    return t
+
+
+def _similarity_ratio(a: str, b: str) -> float:
+    na = _normalize_similarity_text(a)
+    nb = _normalize_similarity_text(b)
+    if not na or not nb:
+        return 0.0
+    return SequenceMatcher(None, na, nb).ratio()
+
+
+def _split_opening_and_rest(body: str) -> tuple[str, str]:
+    parts = [p.strip() for p in (body or "").split("\n\n") if p.strip()]
+    if not parts:
+        return "", ""
+    opening_parts = []
+    acc = 0
+    for p in parts:
+        opening_parts.append(p)
+        acc += len(p)
+        if len(opening_parts) >= 2 and acc >= 240:
+            break
+        if len(opening_parts) >= 3:
+            break
+    opening = "\n\n".join(opening_parts).strip()
+    rest = "\n\n".join(parts[len(opening_parts):]).strip()
+    return opening, rest
+
+
+def _rewrite_opening_via_llm(
+    llm,
+    previous_opening: str,
+    previous_tail: str,
+    current_opening: str,
+    next_context: str,
+) -> str:
+    prompt = f"""
+你是中文网文主编。请将“当前章开头”改写为一个明显不同、但完全连贯的开场。
+
+硬性要求：
+1) 只输出改写后的开头正文，不要输出标题，不要输出解释。
+2) 字数控制在 220–420 字。
+3) 必须从上一章末尾状态直接接续，用动作/对白/冲突起笔，立刻推进剧情。
+4) 禁止复述前情，禁止写“回顾/复盘/前情提要/上一章/上回/回想/不久前/转眼/与此同时”等承接句。
+5) 禁止使用通用开场白（如天色/夜色/时间飞逝/几日后/一夜之间）。
+6) 不改变当前章既定事件顺序与结果，只改开头表达方式，并保证能自然衔接后续正文。
+
+【上一章开头（用于避重）】
+{previous_opening}
+
+【上一章末尾原文片段（必须承接）】
+{previous_tail}
+
+【当前章开头（需改写）】
+{current_opening}
+
+【当前章后续片段（用于衔接）】
+{next_context}
+"""
+    try:
+        rewritten = str(llm.call([{"role": "user", "content": prompt}]) or "").strip()
+        rewritten = re.sub(r"^#.*\n?", "", rewritten).strip()
+        rewritten = re.sub(r"\[SUMMARY_BEGIN\][\s\S]*?\[SUMMARY_END\]", "", rewritten).strip()
+        return rewritten
+    except Exception:
+        return ""
+
+
+def _dedupe_opening_if_needed(
+    chapter_text: str,
+    previous_chapter_text: str,
+    llm,
+    log_callback=None,
+) -> str:
+    if not chapter_text.strip() or not previous_chapter_text.strip():
+        return chapter_text
+
+    title_line = ""
+    lines = chapter_text.replace("\r\n", "\n").replace("\r", "\n").strip().split("\n")
+    if lines and lines[0].strip().startswith("# "):
+        title_line = lines[0].strip()
+        body = "\n".join(lines[1:]).lstrip("\n")
+    else:
+        body = chapter_text.strip()
+
+    opening, rest = _split_opening_and_rest(body)
+    prev_opening = _chapter_opening_for_similarity(previous_chapter_text, max_chars=520)
+    ratio = _similarity_ratio(opening[:520], prev_opening[:520])
+    if ratio < float(os.getenv("CHAPTER_OPENING_SIMILARITY_THRESHOLD", "0.74")):
+        return chapter_text
+
+    next_context = rest[:900].strip()
+    prev_tail = _chapter_tail_for_context(previous_chapter_text, max_chars=1200)
+    rewritten = _rewrite_opening_via_llm(
+        llm=llm,
+        previous_opening=prev_opening[:520],
+        previous_tail=prev_tail,
+        current_opening=opening[:520],
+        next_context=next_context,
+    )
+    if not rewritten:
+        return chapter_text
+
+    new_body = (rewritten.strip() + ("\n\n" + rest if rest else "")).strip() + "\n"
+    merged = (title_line + "\n\n" + new_body).strip() + "\n" if title_line else new_body
+    if log_callback:
+        try:
+            log_callback("✍️ 已检测到开头重复，自动改写开场以避免与上一章雷同", status="info")
+        except Exception:
+            pass
+    return merged
 
 
 def _build_canon_ledger(chapter_number: int, content: str, max_chars: int = 1600) -> str:
@@ -463,6 +619,19 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
         
         agents = create_agents()
         previous_summary = load_chapter_summary(project_name, max(1, int(chapter_number) - 1)) if int(chapter_number) > 1 else ""
+        previous_chapter_text = ""
+        previous_tail = ""
+        if int(chapter_number) > 1:
+            previous_chapter_text = load_chapter(project_name, f"第{int(chapter_number) - 1}章.md")
+            previous_tail = _chapter_tail_for_context(previous_chapter_text, max_chars=1200)
+
+        previous_context = ""
+        if previous_summary:
+            previous_context += f"【上一章摘要（仅供查阅，禁止复述前情）】\n{previous_summary.strip()}\n"
+        if previous_tail:
+            if previous_context:
+                previous_context += "\n"
+            previous_context += f"【上一章末尾原文片段（必须从这里接续）】\n{previous_tail.strip()}\n"
         recent_canon_entries = load_recent_canon_entries(project_name, limit=3)
         recent_canon_context = "\n\n".join(recent_canon_entries).strip()
         story_bible = ensure_story_bible(
@@ -473,6 +642,12 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             log_callback=log_callback,
         )
         keys = load_api_keys()
+        # 从项目配置读取文风，不再从全局key读取
+        project_config = load_project_config(project_name)
+        writing_style = str(project_config.get("writing_style", "standard") or "standard").lower()
+        if writing_style not in {"standard", "tomato"}:
+            writing_style = "standard"
+        
         embedder = get_embedder_config()
         configured_memory_enabled = bool(keys.get("CREWAI_ENABLE_MEMORY", False))
         memory_env = os.getenv("CREWAI_ENABLE_MEMORY")
@@ -493,9 +668,10 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                 story_bible,
                 outline,
                 chapter_number,
-                previous_chapter_content=previous_summary,
+                previous_chapter_content=previous_context,
                 canon_context=recent_canon_context,
                 compact_mode=compact_mode,
+                writing_style=writing_style, # 传递文风参数
             )
             mode_label = "精简链路" if compact_mode else "完整链路"
             if log_callback:
@@ -624,8 +800,14 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
         body_without_summary, summary_block = _extract_summary_block(raw_result)
         final_content = _sanitize_final_content(body_without_summary, int(chapter_number))
 
-        min_chars = int(os.getenv("CHAPTER_MIN_CHARS", "3500"))
-        max_chars = int(os.getenv("CHAPTER_MAX_CHARS", "5500"))
+        if writing_style == "tomato":
+            min_chars = int(os.getenv("CHAPTER_MIN_CHARS_TOMATO", "2100"))
+            max_chars = int(os.getenv("CHAPTER_MAX_CHARS_TOMATO", "2600"))
+        else:
+            min_chars = int(os.getenv("CHAPTER_MIN_CHARS", "3500"))
+            max_chars = int(os.getenv("CHAPTER_MAX_CHARS", "5500"))
+        if max_chars < min_chars:
+            max_chars = min_chars + 200
         current_len = _count_body_chars(final_content)
         if current_len < min_chars:
             if log_callback:
@@ -639,6 +821,15 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                 current_len = _count_body_chars(final_content)
             if log_callback:
                 log_callback(f"✅ 扩写完成，正文长度：{current_len}字", status='success')
+
+        dedup_enabled = os.getenv("CHAPTER_OPENING_DEDUP", "true").lower() != "false"
+        if dedup_enabled and int(chapter_number) > 1 and previous_chapter_text:
+            target_llm = agents[3].llm if len(agents) > 3 else agents[0].llm
+            final_content = _dedupe_opening_if_needed(final_content, previous_chapter_text, target_llm, log_callback=log_callback)
+            current_len = _count_body_chars(final_content)
+            if current_len < min_chars:
+                expanded_once = _expand_chapter_to_min_length(agents[3], int(chapter_number), final_content, min_chars, max_chars)
+                final_content = _sanitize_final_content(expanded_once, int(chapter_number))
         
         # 保存章节
         save_chapter(project_name, chapter_number, final_content)

@@ -28,7 +28,7 @@ def get_all_projects():
     return sorted([d for d in os.listdir(projects_dir) if os.path.isdir(os.path.join(projects_dir, d))])
 
 
-def create_new_project(book_name):
+def create_new_project(book_name, writing_style="standard"):
     """创建新项目"""
     safe_name = "".join(c for c in book_name if c.isalnum() or c in " _-").strip() or "新书"
     projects_dir = get_projects_root()
@@ -66,7 +66,8 @@ def create_new_project(book_name):
         "worldview": {},
         "total_chapters": 0,
         "outline_hash": "",
-        "story_bible_updated_at": None
+        "story_bible_updated_at": None,
+        "writing_style": writing_style
     }
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
@@ -290,5 +291,6 @@ def get_project_info(project_name):
         "last_modified": config.get("last_modified"),
         "total_chapters": len(chapters),
         "total_planned_chapters": planned_chapters,
-        "generated_chapters": chapters
+        "generated_chapters": chapters,
+        "writing_style": config.get("writing_style", "standard")
     }

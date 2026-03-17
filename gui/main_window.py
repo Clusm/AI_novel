@@ -37,15 +37,18 @@ from PySide6.QtWidgets import (
 
 from gui.styles import APP_STYLESHEET
 from gui.workers import ChapterGenerationWorker
-from src.api import load_api_keys, save_api_keys, test_all_apis
+from src.api import load_api_keys, save_api_keys
 from src.logger import add_run_log, clear_run_logs
 from src.project import (
     create_new_project,
     delete_project,
     get_all_projects,
+    get_project_info,
     list_generated_chapters,
     load_chapter,
+    load_project_config,
     load_outline,
+    save_project_config,
     save_outline,
 )
 
@@ -292,6 +295,13 @@ class NewProjectDialog(QDialog, FramelessWindowMixin):
         self.name_edit.setPlaceholderText("项目名称，例如：诸天之无上道途")
         self.name_edit.setMinimumHeight(44)
         content_layout.addWidget(self.name_edit)
+
+        self.style_combo = QComboBox()
+        self.style_combo.addItems(["正常模式 (Standard)", "番茄模式 (Tomato)"])
+        self.style_combo.setMinimumHeight(44)
+        self.style_combo.setPlaceholderText("选择文风偏好")
+        content_layout.addWidget(QLabel("文风偏好:"))
+        content_layout.addWidget(self.style_combo)
         
         btn_layout = QHBoxLayout()
         self.cancel_btn = QPushButton("取消")
@@ -312,6 +322,10 @@ class NewProjectDialog(QDialog, FramelessWindowMixin):
 
     def get_name(self):
         return self.name_edit.text().strip()
+
+    def get_style(self):
+        text = self.style_combo.currentText()
+        return "tomato" if "Tomato" in text else "standard"
 
 
 class ApiSettingsDialog(QDialog, FramelessWindowMixin):
@@ -399,7 +413,7 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         content_layout.addLayout(form)
         
         btn_layout = QHBoxLayout()
-        self.save_btn = QPushButton("保存配置并验证")
+        self.save_btn = QPushButton("保存配置")
         self.save_btn.setObjectName("PrimaryButton")
         self.save_btn.setMinimumHeight(42)
         
@@ -421,11 +435,11 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         container_layout.addWidget(content)
         
         self.cancel_btn.clicked.connect(self.reject)
-        self.save_btn.clicked.connect(self.save_and_test)
+        self.save_btn.clicked.connect(self.save_settings)
         
         apply_drop_shadow(self.container, blur_radius=40, y_offset=12, alpha=30)
 
-    def save_and_test(self):
+    def save_settings(self):
         try:
             # Map display text back to key
             selected_text = self.route_profile.currentText()
@@ -440,39 +454,13 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
                 self.writer_model.currentText(),
                 self.memory_mode.currentText() == "开启",
             )
-            providers = ["deepseek", "qwen"]
-            has_kimi = bool(self.kimi.text().strip())
-            writer_model = self.writer_model.currentText()
-            
-            kimi_required = has_kimi and (
-                route_key in ("balanced", "quality")
-                or writer_model == "kimi"
-                or (writer_model == "auto" and route_key == "quality")
-            )
-            if kimi_required:
-                providers.append("kimi")
-                
-            self.result_label.setText("正在验证连接...")
-            self.result_label.setVisible(True)
-            self.repaint()
-            
-            results = test_all_apis(providers)
-            all_ok = all(val[0] for val in results.values())
-            
-            lines = []
-            for provider, (ok, msg) in results.items():
-                status_icon = "✅" if ok else "❌"
-                lines.append(f"{status_icon} {provider}: {msg if not ok else '连接成功'}")
-                
-            self.result_label.setText("\n".join(lines))
-            self.result_label.setProperty("tone", "success" if all_ok else "danger")
+            self.result_label.setText("✅ 配置已保存")
+            self.result_label.setProperty("tone", "success")
             self.result_label.style().unpolish(self.result_label)
             self.result_label.style().polish(self.result_label)
-            
-            if all_ok:
-                # Delay closing slightly so user can see success
-                QThread.msleep(500)
-                self.accept()
+            self.result_label.setVisible(True)
+            QThread.msleep(300)
+            self.accept()
                 
         except Exception as exc:
             self.result_label.setText(str(exc))
@@ -704,6 +692,15 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         
         self.btn_new_project.clicked.connect(self.create_project)
         self.btn_delete_project.clicked.connect(self.remove_project)
+
+        # Style Selector (Sidebar)
+        content_layout.addSpacing(12)
+        content_layout.addWidget(QLabel("项目文风"))
+        self.combo_project_style = QComboBox()
+        self.combo_project_style.addItems(["正常模式 (Standard)", "番茄模式 (Tomato)"])
+        self.combo_project_style.setMinimumHeight(38)
+        self.combo_project_style.currentIndexChanged.connect(self.update_project_style_config)
+        content_layout.addWidget(self.combo_project_style)
         
         content_layout.addStretch(1)
         
@@ -1220,9 +1217,12 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.btn_delete_project.setEnabled(True)
         project_changed = self.selected_project != self._last_loaded_project
         
-        from src.project import get_project_info
-        
         info = get_project_info(self.selected_project)
+        style_val = info.get("writing_style", "standard")
+        style_map = {"standard": "正常模式 (Standard)", "tomato": "番茄模式 (Tomato)"}
+        self.combo_project_style.blockSignals(True)
+        self.combo_project_style.setCurrentText(style_map.get(style_val, "正常模式 (Standard)"))
+        self.combo_project_style.blockSignals(False)
         chapters = info["generated_chapters"]
         total_planned = info.get("total_planned_chapters", 0)
         
@@ -1417,15 +1417,31 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         dialog = NewProjectDialog(self)
         if dialog.exec() == QDialog.Accepted:
             name = dialog.get_name()
+            style = dialog.get_style()
             if not name:
                 QMessageBox.warning(self, "提示", "请输入项目名称")
                 return
             try:
-                created = create_new_project(name)
+                created = create_new_project(name, style)
                 self.selected_project = created
                 self.refresh_projects()
             except Exception as exc:
                 QMessageBox.critical(self, "创建失败", str(exc))
+
+    def update_project_style_config(self):
+        if not self.selected_project:
+            return
+        
+        style_text = self.combo_project_style.currentText()
+        style_val = "tomato" if "Tomato" in style_text else "standard"
+        
+        # 加载现有配置
+        config = load_project_config(self.selected_project)
+        # 如果配置变更则保存
+        if config.get("writing_style") != style_val:
+            config["writing_style"] = style_val
+            save_project_config(self.selected_project, config)
+            # 移除了 smart_hint 的更新，因为文风设置现在不在主面板了
 
     def remove_project(self):
         if not self.selected_project:
@@ -1440,7 +1456,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
     def open_api_settings(self):
         dialog = ApiSettingsDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            QMessageBox.information(self, "配置成功", "配置已保存且连接正常")
+            QMessageBox.information(self, "配置成功", "配置已保存")
 
     def start_generation(self):
         if self.is_generating:
