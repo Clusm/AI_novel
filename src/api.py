@@ -59,7 +59,7 @@ def get_encryption_key():
             return f.read()
 
 
-def save_api_keys(deepseek, qwen, kimi, auth_code="", route_profile="speed", writer_model="auto", crewai_enable_memory=False):
+def save_api_keys(deepseek, qwen, kimi, auth_code="", route_profile="speed", writer_model="auto"):
     """保存API Key（加密）"""
     keys = {
         "DEEPSEEK_API_KEY": deepseek,
@@ -68,7 +68,7 @@ def save_api_keys(deepseek, qwen, kimi, auth_code="", route_profile="speed", wri
         "AUTH_CODE": auth_code,
         "ROUTE_PROFILE": route_profile,
         "WRITER_MODEL": writer_model,
-        "CREWAI_ENABLE_MEMORY": bool(crewai_enable_memory),
+        "CREWAI_ENABLE_MEMORY": False,
     }
     
     key = get_encryption_key()
@@ -101,9 +101,6 @@ def load_api_keys():
         decrypted_data = fernet.decrypt(encrypted_data)
         keys = json.loads(decrypted_data.decode())
         
-        memory_val = keys.get("CREWAI_ENABLE_MEMORY", False)
-        if isinstance(memory_val, str):
-            memory_val = memory_val.lower() == "true"
         # 兼容旧版本 key 结构
         return {
             "DEEPSEEK_API_KEY": keys.get("DEEPSEEK_API_KEY", ""),
@@ -112,7 +109,7 @@ def load_api_keys():
             "AUTH_CODE": keys.get("AUTH_CODE", ""),
             "ROUTE_PROFILE": keys.get("ROUTE_PROFILE", "speed"),
             "WRITER_MODEL": keys.get("WRITER_MODEL", "auto"),
-            "CREWAI_ENABLE_MEMORY": bool(memory_val),
+            "CREWAI_ENABLE_MEMORY": False,
         }
     except Exception:
         return {

@@ -5,6 +5,7 @@ import re
 # CrewAI 记忆检索时会把「任务 description + context」整段作为 query 发给 Embedding API。
 # 因此需要控制 description 的长度，避免 embedding 查询超限。
 STORY_BIBLE_MAX_CHARS = 2600
+STORY_BIBLE_MAX_CHARS_TOMATO = 3200
 OUTLINE_EXCERPT_MAX_CHARS = 1200
 
 
@@ -109,8 +110,9 @@ def create_tasks(
     tasks = []
 
     bible_for_desc = (story_bible or "").strip()
-    if len(bible_for_desc) > STORY_BIBLE_MAX_CHARS:
-        bible_for_desc = bible_for_desc[:STORY_BIBLE_MAX_CHARS] + "…（剧情圣经已截断）"
+    bible_limit = STORY_BIBLE_MAX_CHARS_TOMATO if writing_style == "tomato" else STORY_BIBLE_MAX_CHARS
+    if len(bible_for_desc) > bible_limit:
+        bible_for_desc = bible_for_desc[:bible_limit] + "…（剧情圣经已截断）"
 
     outline_excerpt, is_detailed_outline = _extract_outline_excerpt(user_outline, current_chapter, OUTLINE_EXCERPT_MAX_CHARS)
 
@@ -123,7 +125,8 @@ def create_tasks(
     if bible_for_desc:
         base_context += f"\n\n【剧情圣经（摘要）】\n{bible_for_desc}"
     if canon_context:
-        base_context += f"\n\n【最近章节事实台账（强连续性输入）】\n{canon_context[:1800]}"
+        canon_limit = 2200 if writing_style == "tomato" else 1800
+        base_context += f"\n\n【最近章节事实台账（强连续性输入）】\n{canon_context[:canon_limit]}"
     
     # 风格化指令注入
     style_instruction = ""

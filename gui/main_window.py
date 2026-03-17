@@ -3,8 +3,8 @@ import re
 from datetime import datetime
 from html import escape
 
-from PySide6.QtCore import QEvent, Qt, QThread
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal, QObject
+from PySide6.QtGui import QColor, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -34,6 +34,33 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+import markdown
+import sys
+import io
+
+class StreamRedirector(QObject):
+    text_written = Signal(str)
+
+    def __init__(self, original_stream=None):
+        super().__init__()
+        self.original_stream = original_stream
+
+    def write(self, text):
+        if self.original_stream and hasattr(self.original_stream, 'write'):
+            try:
+                self.original_stream.write(text)
+                self.original_stream.flush()
+            except Exception:
+                pass
+        self.text_written.emit(str(text))
+
+    def flush(self):
+        if self.original_stream and hasattr(self.original_stream, 'flush'):
+            try:
+                self.original_stream.flush()
+            except Exception:
+                pass
+
 
 from gui.styles import APP_STYLESHEET
 from gui.workers import ChapterGenerationWorker
@@ -51,6 +78,7 @@ from src.project import (
     save_project_config,
     save_outline,
 )
+from src.workspace import workspace_manager
 
 
 class CustomTitleBar(QWidget):
@@ -397,19 +425,12 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         if writer_val in ["auto", "qwen", "kimi"]:
             self.writer_model.setCurrentText(writer_val)
 
-        self.memory_mode = QComboBox()
-        self.memory_mode.addItems(["关闭", "开启"])
-        self.memory_mode.setMinimumHeight(40)
-        if bool(keys.get("CREWAI_ENABLE_MEMORY", False)):
-            self.memory_mode.setCurrentText("开启")
-            
         form.addRow("DeepSeek Key", self.deepseek)
         form.addRow("通义千问 Key", self.qwen)
         form.addRow("Kimi Key", self.kimi)
         form.addRow("系统授权码", self.auth_code)
         form.addRow("路由策略", self.route_profile)
         form.addRow("主写模型", self.writer_model)
-        form.addRow("CrewAI 记忆", self.memory_mode)
         content_layout.addLayout(form)
         
         btn_layout = QHBoxLayout()
@@ -452,7 +473,6 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
                 self.auth_code.text().strip(),
                 route_key,
                 self.writer_model.currentText(),
-                self.memory_mode.currentText() == "开启",
             )
             self.result_label.setText("✅ 配置已保存")
             self.result_label.setProperty("tone", "success")
@@ -494,10 +514,85 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.worker_thread = None
         self.worker = None
         self._outline_syncing = False
+        self._outline_source = ""
         self._last_loaded_project = None
         
         self._build_ui()
         self.refresh_projects()
+
+        # Redirect stdout and stderr to the raw logs view
+        self.stdout_redirector = StreamRedirector(sys.stdout)
+        self.stderr_redirector = StreamRedirector(sys.stderr)
+        sys.stdout = self.stdout_redirector
+        sys.stderr = self.stderr_redirector
+        self.stdout_redirector.text_written.connect(self.append_raw_log)
+        self.stderr_redirector.text_written.connect(self.append_raw_log)
+
+    def _parse_ansi_to_html(self, text):
+        # 移除 \r，因为 QTextEdit 不支持覆盖当前行
+        text = text.replace("\r", "")
+        text = escape(text)
+        text = text.replace(" ", "&nbsp;")
+        text = text.replace("\n", "<br>")
+        
+        color_map = {
+            '30': '#000000', '31': '#cd3131', '32': '#0dbc79', '33': '#e5e510',
+            '34': '#2472c8', '35': '#bc3fbc', '36': '#11a8cd', '37': '#e5e5e5',
+            '90': '#666666', '91': '#f14c4c', '92': '#23d18b', '93': '#f5f543',
+            '94': '#3b8eea', '95': '#d670d6', '96': '#29b8db', '97': '#e5e5e5',
+        }
+        
+        parts = re.split(r'\x1b\[([\d;]*)m', text)
+        if len(parts) == 1:
+            return text
+            
+        result = [parts[0]]
+        span_open = False
+        
+        for i in range(1, len(parts), 2):
+            codes = parts[i].split(';')
+            text_part = parts[i+1]
+            
+            if '0' in codes or '' in codes:
+                if span_open:
+                    result.append("</span>")
+                    span_open = False
+            
+            styles = []
+            for c in codes:
+                if c in color_map:
+                    styles.append(f"color: {color_map[c]}")
+                elif c == '1':
+                    styles.append("font-weight: bold")
+                    
+            if styles:
+                if span_open:
+                    result.append("</span>")
+                result.append(f"<span style='{'; '.join(styles)}'>")
+                span_open = True
+                
+            result.append(text_part)
+            
+        if span_open:
+            result.append("</span>")
+            
+        return "".join(result)
+
+    def append_raw_log(self, text):
+        if hasattr(self, 'raw_logs_view') and self.raw_logs_view:
+            bar = self.raw_logs_view.verticalScrollBar()
+            keep_bottom = bar.value() >= (bar.maximum() - 2)
+            
+            # Move cursor to end and insert text
+            cursor = self.raw_logs_view.textCursor()
+            cursor.movePosition(QTextCursor.End)
+            self.raw_logs_view.setTextCursor(cursor)
+            
+            html_text = self._parse_ansi_to_html(text)
+            cursor.insertHtml(f"<span style=\"font-family: Consolas, 'Microsoft YaHei Mono', monospace; font-size: 13px; color: #d4d4d4;\">{html_text}</span>")
+            
+            if keep_bottom:
+                bar.setValue(bar.maximum())
 
     def _center_window(self):
         screen = self.screen().availableGeometry()
@@ -650,8 +745,8 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         # Header (Draggable Area)
         header = DraggableHeader(self)
         header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(24, 18, 24, 8)
-        header_layout.setSpacing(4)
+        header_layout.setContentsMargins(24, 10, 24, 4) # Reduced top/bottom margins (18->10, 8->4)
+        header_layout.setSpacing(2) # Reduced spacing (4->2)
         
         # Branding
         title = QLabel("🤖 AI 写作助手")
@@ -667,8 +762,8 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         # Content Area
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(24, 8, 24, 28)
-        content_layout.setSpacing(16)
+        content_layout.setContentsMargins(24, 4, 24, 20) # Reduced top/bottom margins (8->4, 28->20)
+        content_layout.setSpacing(12) # Reduced spacing (16->12)
         
         # Project Selector
         content_layout.addWidget(QLabel("当前项目"))
@@ -738,8 +833,8 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         # 2. Dashboard
         dashboard = QWidget()
         layout = QVBoxLayout(dashboard)
-        layout.setContentsMargins(36, 26, 36, 32)
-        layout.setSpacing(20)
+        layout.setContentsMargins(36, 16, 36, 16) # Reduced top/bottom margins (26->16, 32->16)
+        layout.setSpacing(12) # Reduced spacing (20->12)
         
         # Header
         header_layout = QHBoxLayout()
@@ -789,16 +884,19 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
             
             # Content
             content_layout = QVBoxLayout()
-            content_layout.setContentsMargins(20, 20, 20, 20)
-            content_layout.setSpacing(4)
+            content_layout.setContentsMargins(10, 10, 10, 10) # Reduced padding (20->10)
+            content_layout.setSpacing(2) # Reduced spacing (4->2)
 
             value = QLabel("0")
             value.setAlignment(Qt.AlignCenter)
             value.setObjectName("StatValue")
+            # Override font size for compact view (was implied larger in style)
+            value.setStyleSheet("font-size: 20px; font-weight: bold;")
             
             label = QLabel(text)
             label.setAlignment(Qt.AlignCenter)
             label.setObjectName("StatLabel")
+            label.setStyleSheet("font-size: 12px; color: #64748b;")
             
             content_layout.addWidget(value)
             content_layout.addWidget(label)
@@ -848,8 +946,19 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         apply_drop_shadow(left, blur_radius=20, y_offset=4, alpha=15)
         
         left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(20, 20, 20, 20)
-        left_layout.addWidget(QLabel("📝 故事大纲"))
+        left_layout.setContentsMargins(20, 20, 20, 10) # Reduced bottom margin (20->10)
+        left_layout.setSpacing(10) # Reduced spacing (default->10)
+        
+        # Header Row: Title + Chapter Detection
+        header_row = QHBoxLayout()
+        header_row.addWidget(QLabel("📝 故事大纲"))
+        
+        self.chapter_detect_label = QLabel("")
+        self.chapter_detect_label.setObjectName("MutedText")
+        self.chapter_detect_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        header_row.addWidget(self.chapter_detect_label, 1)
+        
+        left_layout.addLayout(header_row)
         
         self.outline_edit = QTextEdit()
         self.outline_edit.setObjectName("MarkdownEditor")
@@ -857,18 +966,17 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.outline_edit.textChanged.connect(self.on_outline_changed)
         left_layout.addWidget(self.outline_edit, 1)
         
-        bottom = QHBoxLayout()
+        tools = QHBoxLayout()
+        tools.setContentsMargins(0, 0, 0, 0)
+        tools.addStretch(1)
+        
         self.btn_save_outline = QPushButton("保存大纲")
         self.btn_save_outline.setObjectName("PrimaryButton")
+        self.btn_save_outline.setFixedSize(100, 36) # Smaller button
         self.btn_save_outline.clicked.connect(self.save_outline_clicked)
         
-        self.chapter_detect_label = QLabel("")
-        self.chapter_detect_label.setObjectName("MutedText")
-        
-        bottom.addWidget(self.btn_save_outline)
-        bottom.addSpacing(10)
-        bottom.addWidget(self.chapter_detect_label, 1)
-        left_layout.addLayout(bottom)
+        tools.addWidget(self.btn_save_outline)
+        left_layout.addLayout(tools)
         
         # Right: Generation Control
         right = QFrame()
@@ -982,7 +1090,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         
         right_layout.addLayout(action_area)
         
-        tab_layout.addWidget(left, 3)
+        tab_layout.addWidget(left, 4) # Increased flex ratio (3->4)
         tab_layout.addWidget(right, 2)
         
         # Initialize UI state
@@ -1093,7 +1201,6 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         layout.setContentsMargins(4, 14, 4, 4)
         layout.setSpacing(20)
         
-        # Logs
         logs = QFrame()
         logs.setObjectName("Card")
         apply_drop_shadow(logs, blur_radius=20, y_offset=4, alpha=15)
@@ -1105,7 +1212,44 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         header.setStyleSheet("border-bottom: 1px solid #e2e8f0; background: #f8fafc; border-top-left-radius: 16px; border-top-right-radius: 16px;")
         h_layout = QHBoxLayout(header)
         h_layout.setContentsMargins(20, 12, 20, 12)
-        h_layout.addWidget(QLabel("📺 Agent 实时思维流"))
+        
+        self.btn_mode_thought = QPushButton("Agent思维流")
+        self.btn_mode_terminal = QPushButton("终端命令行")
+        self.btn_mode_thought.setCheckable(True)
+        self.btn_mode_terminal.setCheckable(True)
+        self.btn_mode_thought.setChecked(True)
+        self.btn_mode_thought.setCursor(Qt.PointingHandCursor)
+        self.btn_mode_terminal.setCursor(Qt.PointingHandCursor)
+        
+        toggle_style = """
+            QPushButton {
+                background: transparent;
+                border: none;
+                color: #64748b;
+                font-weight: bold;
+                padding: 6px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:checked {
+                background: #e2e8f0;
+                color: #0f172a;
+            }
+            QPushButton:hover:!checked {
+                background: #f1f5f9;
+                color: #334155;
+            }
+        """
+        self.btn_mode_thought.setStyleSheet(toggle_style)
+        self.btn_mode_terminal.setStyleSheet(toggle_style)
+        
+        self.monitor_mode_group = QButtonGroup(self)
+        self.monitor_mode_group.addButton(self.btn_mode_thought, 0)
+        self.monitor_mode_group.addButton(self.btn_mode_terminal, 1)
+        self.monitor_mode_group.buttonClicked.connect(self._on_monitor_mode_changed)
+        
+        h_layout.addWidget(self.btn_mode_thought)
+        h_layout.addWidget(self.btn_mode_terminal)
+        
         h_layout.addStretch(1)
         
         self.btn_refresh_logs = QPushButton("刷新")
@@ -1116,18 +1260,90 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.btn_clear_logs = QPushButton("清空")
         self.btn_clear_logs.setFixedSize(60, 30)
         self.btn_clear_logs.setStyleSheet("padding: 4px;")
-        self.btn_clear_logs.clicked.connect(self.clear_logs_clicked)
+        self.btn_clear_logs.clicked.connect(self.clear_current_logs)
         
         h_layout.addWidget(self.btn_refresh_logs)
         h_layout.addWidget(self.btn_clear_logs)
         logs_layout.addWidget(header)
-        
+
+        self.monitor_stack = QStackedWidget()
+
+        thought_tab = QWidget()
+        thought_layout = QVBoxLayout(thought_tab)
+        thought_layout.setContentsMargins(0, 0, 0, 0)
+        thought_layout.setSpacing(0)
         self.logs_view = QTextEdit()
         self.logs_view.setObjectName("LogViewer")
         self.logs_view.setReadOnly(True)
-        # Remove border from log viewer as card has it
-        self.logs_view.setStyleSheet("border: none; border-bottom-left-radius: 16px; border-bottom-right-radius: 16px;")
-        logs_layout.addWidget(self.logs_view, 1)
+        self.logs_view.setStyleSheet("""
+            QTextEdit {
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: transparent;
+                width: 12px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(100, 116, 139, 0.4);
+                min-height: 30px;
+                border-radius: 6px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(100, 116, 139, 0.7);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: transparent;
+            }
+        """)
+        thought_layout.addWidget(self.logs_view, 1)
+
+        raw_tab = QWidget()
+        raw_layout = QVBoxLayout(raw_tab)
+        raw_layout.setContentsMargins(0, 0, 0, 0)
+        raw_layout.setSpacing(0)
+
+        self.raw_logs_view = QTextEdit()
+        self.raw_logs_view.setReadOnly(True)
+        self.raw_logs_view.document().setMaximumBlockCount(5000) # Keep memory usage in check
+        self.raw_logs_view.setStyleSheet("""
+            QTextEdit {
+                border: none; 
+                background: #1e1e1e; 
+                padding: 12px;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: transparent;
+                width: 12px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.2);
+                min-height: 30px;
+                border-radius: 6px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.4);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: transparent;
+            }
+        """)
+        raw_layout.addWidget(self.raw_logs_view, 1)
+
+        self.monitor_stack.addWidget(thought_tab)
+        self.monitor_stack.addWidget(raw_tab)
+        logs_layout.addWidget(self.monitor_stack, 1)
         
         layout.addWidget(logs)
         return tab
@@ -1255,32 +1471,154 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.refresh_log_view()
         self._last_loaded_project = self.selected_project
 
+    def _normalize_outline_markdown(self, text):
+        lines = []
+        for line in (text or "").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                lines.append(stripped)
+                continue
+            if stripped in ("```", "````", "` `", "`  `"):
+                continue
+            lines.append(line)
+        return "\n".join(lines)
+
+    def _render_outline_html(self, text):
+        normalized = self._normalize_outline_markdown(text)
+        raw_html = markdown.markdown(
+            normalized,
+            extensions=["extra", "tables", "fenced_code", "nl2br", "sane_lists"],
+            output_format="html5",
+        )
+        return f"""
+        <div style="font-family:'Segoe UI','Microsoft YaHei UI',sans-serif;font-size:15px;color:#334155;line-height:1.6;padding:10px;">
+            <style>
+                h1 {{ color:#2563eb; font-size:24px; margin-top:20px; margin-bottom:12px; }}
+                h2 {{ color:#0ea5e9; font-size:20px; margin-top:18px; margin-bottom:10px; }}
+                h3 {{ color:#0284c7; font-size:18px; margin-top:16px; margin-bottom:8px; }}
+                h4, h5, h6 {{ color:#334155; font-size:16px; margin-top:14px; margin-bottom:8px; }}
+                p {{ margin-bottom:12px; }}
+                ul, ol {{ margin-top:8px; margin-bottom:12px; padding-left:24px; }}
+                li {{ margin-bottom:6px; }}
+                blockquote {{ border-left:4px solid #cbd5e1; padding-left:12px; color:#64748b; margin:12px 0; font-style:italic; }}
+                hr {{ border:0; border-top:1px solid #e2e8f0; margin:20px 0; }}
+                strong {{ font-weight:700; color:#0f172a; }}
+                table {{ width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; }}
+                th {{ background:#f8fafc; color:#0f172a; font-weight:700; }}
+                th, td {{ border:1px solid #dbe3ef; padding:8px 10px; text-align:left; vertical-align:top; }}
+                tr:nth-child(even) td {{ background:#fcfdff; }}
+                code {{ background:#f1f5f9; padding:2px 4px; border-radius:4px; }}
+                pre {{ background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }}
+            </style>
+            {raw_html}
+        </div>
+        """
+
+    def _simple_markdown_to_html(self, text):
+        """简单的 Markdown 转 HTML 函数，用于预览模式优化显示"""
+        import html
+        
+        # 处理特殊字符
+        text = html.escape(text)
+        
+        # 处理加粗 **text** -> <strong>text</strong>
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+        
+        lines = text.split('\n')
+        html_lines = []
+        in_list = False
+        
+        for line in lines:
+            line_stripped = line.strip()
+            
+            # 处理空行
+            if not line_stripped:
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                html_lines.append('<br/>')
+                continue
+                
+            # 处理标题 # H1, ## H2...
+            h_match = re.match(r'^(#{1,6})\s+(.+)', line_stripped)
+            if h_match:
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                level = len(h_match.group(1))
+                content = h_match.group(2)
+                
+                # 根据标题级别设置不同的颜色和大小
+                colors = {
+                    1: "#2563eb", 2: "#0ea5e9", 3: "#0284c7",
+                    4: "#334155", 5: "#475569", 6: "#64748b"
+                }
+                sizes = {
+                    1: "24px", 2: "20px", 3: "18px",
+                    4: "16px", 5: "15px", 6: "14px"
+                }
+                color = colors.get(level, "#334155")
+                size = sizes.get(level, "16px")
+                
+                html_lines.append(f'<h{level} style="color: {color}; font-size: {size}; margin-top: 16px; margin-bottom: 8px;">{content}</h{level}>')
+                continue
+                
+            # 处理列表项 * item 或 - item
+            list_match = re.match(r'^[-*]\s+(.+)', line_stripped)
+            if list_match:
+                if not in_list:
+                    html_lines.append('<ul style="margin-top: 4px; margin-bottom: 4px;">')
+                    in_list = True
+                content = list_match.group(1)
+                html_lines.append(f'<li style="margin-bottom: 4px;">{content}</li>')
+                continue
+                
+            # 处理引用 > quote
+            quote_match = re.match(r'^>\s+(.+)', line_stripped)
+            if quote_match:
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                content = quote_match.group(1)
+                html_lines.append(f'<div style="border-left: 4px solid #cbd5e1; padding-left: 12px; color: #64748b; margin: 8px 0;">{content}</div>')
+                continue
+            
+            # 处理分隔线 ---
+            if re.match(r'^---+\s*$', line_stripped):
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                html_lines.append('<hr style="border: 1px solid #e2e8f0; margin: 16px 0;" />')
+                continue
+                
+            # 普通段落
+            if in_list:
+                html_lines.append('</ul>')
+                in_list = False
+            html_lines.append(f'<p style="margin: 4px 0; line-height: 1.6;">{line}</p>')
+            
+        if in_list:
+            html_lines.append('</ul>')
+            
+        return f'<div style="font-family: \'Segoe UI\', \'Microsoft YaHei UI\', sans-serif; font-size: 15px; color: #334155;">{"".join(html_lines)}</div>'
+
     def on_outline_changed(self):
         if self._outline_syncing:
             return
+        self._outline_source = self.outline_edit.toMarkdown().strip()
         plain_text = self.outline_edit.toPlainText()
         
-        # 实时 Markdown 渲染优化：仅当用户输入看起来像 Markdown 结构时才尝试重置
-        if re.search(r"(^|\n)\s*(#{1,6}\s+|[-*]\s+|\d+\.\s+|>\s+)", plain_text):
-            current_markdown = self.outline_edit.toMarkdown().strip()
-            # 简单的防抖：如果转换后的 Markdown 没变，就不重置，避免光标跳动
-            if plain_text.strip() == current_markdown:
-                cursor_pos = self.outline_edit.textCursor().position()
-                self._outline_syncing = True
-                self.outline_edit.setMarkdown(plain_text)
-                restored = self.outline_edit.textCursor()
-                restored.setPosition(min(cursor_pos, len(self.outline_edit.toPlainText())))
-                self.outline_edit.setTextCursor(restored)
-                self._outline_syncing = False
-        
-        # 实时更新右侧状态栏的"预计总章数"
         # 查找"分卷细纲"或类似的标记
         start_index = 0
         match = re.search(r'#+\s*分卷细纲|#+\s*章节大纲', plain_text)
         if match:
             start_index = match.end()
         
-        chapter_matches = re.findall(r'(?:^|\n)#*\s*第\s*\d+\s*章', plain_text[start_index:])
+        # 宽松匹配章节标题，不仅限于标准的 "第X章"
+        # 1. 标准: # 第1章
+        # 2. 宽松: 第1章, 章节1, Chapter 1
+        # 3. 列表项: - 第1章
+        chapter_matches = re.findall(r'(?:^|\n)\s*(?:#+|[-*])?\s*(?:第\s*\d+\s*章|Chapter\s*\d+|章节\s*\d+)', plain_text[start_index:], re.IGNORECASE)
         detected = len(chapter_matches)
         
         if detected > 0:
@@ -1291,12 +1629,15 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
             # 如果没检测到，保持原来的估算值或显示0，这里暂不更新以免跳变太快
 
     def _set_outline_markdown(self, text):
+        self._outline_source = text or ""
+        html = self._render_outline_html(self._outline_source)
         self._outline_syncing = True
-        self.outline_edit.setMarkdown(text or "")
+        self.outline_edit.setHtml(html)
         self._outline_syncing = False
 
     def _get_outline_markdown(self):
-        return self.outline_edit.toMarkdown().strip()
+        text = self.outline_edit.toMarkdown().strip()
+        return text or self._outline_source
 
     def _refresh_banner_style(self, label, tone):
         label.setProperty("tone", tone)
@@ -1623,6 +1964,18 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         # Restore button text after 1.5 seconds
         from PySide6.QtCore import QTimer
         QTimer.singleShot(1500, restore)
+
+    def _on_monitor_mode_changed(self, button):
+        idx = self.monitor_mode_group.id(button)
+        self.monitor_stack.setCurrentIndex(idx)
+        # 终端命令行是实时流，不需要刷新按钮
+        self.btn_refresh_logs.setVisible(idx == 0)
+
+    def clear_current_logs(self):
+        if self.monitor_stack.currentIndex() == 0:
+            self.clear_logs_clicked()
+        else:
+            self.raw_logs_view.clear()
 
     def clear_logs_clicked(self):
         clear_run_logs(self.run_logs)

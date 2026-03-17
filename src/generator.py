@@ -51,10 +51,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 
-# -----------------------------------------------------------------------------
-# Embedder：记忆功能使用「通义千问」OpenAI 兼容 embedding，与 DeepSeek/Kimi/千问 LLM 兼容
-# 文档：https://help.aliyun.com/zh/model-studio/embedding-interfaces-compatible-with-openai
-# -----------------------------------------------------------------------------
 def get_embedder_config():
     """
     返回 CrewAI 记忆用的 embedder 配置。
@@ -73,6 +69,92 @@ def get_embedder_config():
             "model": "text-embedding-v3",
         },
     }
+
+
+def _tomato_compact_context(text: str, max_chars: int) -> str:
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    raw = re.sub(r"\n{3,}", "\n\n", raw).strip()
+    if len(raw) <= max_chars:
+        return raw
+    return raw[: max_chars - 1].rstrip() + "…"
+
+
+def _md_last_section(text: str, header: str) -> str:
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    pattern = rf"(?m)^##\s*{re.escape(header)}\s*$"
+    last = None
+    for m in re.finditer(pattern, raw):
+        last = m
+    if not last:
+        return ""
+    start = last.end()
+    next_header = re.search(r"(?m)^##\s+", raw[start:])
+    end = start + next_header.start() if next_header else len(raw)
+    return raw[start:end].strip()
+
+
+def _tight_one_liner(text: str, max_chars: int) -> str:
+    s = re.sub(r"\s+", " ", (text or "").strip())
+    if not s:
+        return ""
+    if len(s) <= max_chars:
+        return s
+    return s[: max_chars - 1].rstrip() + "…"
+
+
+def _take_bullet_lines(text: str, max_items: int) -> list[str]:
+    out = []
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith(("-", "•", "·")):
+            out.append(s)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _build_tomato_recap(project_name: str, chapter_number: int) -> str:
+    prev_num = int(chapter_number) - 1
+    if prev_num <= 0:
+        return ""
+    summary = load_chapter_summary(project_name, prev_num).strip()
+    tail = load_chapter(project_name, f"第{prev_num}章.md")
+    tail = _chapter_tail_for_context(tail, max_chars=900).strip() if tail else ""
+    canon_entries = load_recent_canon_entries(project_name, limit=2)
+    canon = "\n\n".join([c.strip() for c in canon_entries if c.strip()])
+    blocks = []
+    if summary:
+        s_irrev = _md_last_section(summary, "不可逆事实")
+        s_end = _md_last_section(summary, "章末状态")
+        s_anchor = _md_last_section(summary, "下一章承接锚点")
+        lines = []
+        if s_irrev:
+            lines.append(f"- 不可逆：{_tight_one_liner(s_irrev, 120)}")
+        if s_end:
+            lines.append(f"- 章末：{_tight_one_liner(s_end, 140)}")
+        if s_anchor:
+            lines.append(f"- 承接：{_tight_one_liner(s_anchor, 140)}")
+        payload = "\n".join(lines).strip() or _tomato_compact_context(summary, 700)
+        blocks.append(f"【上一章摘要（供承接）】\n{_tomato_compact_context(payload, 700)}")
+    if canon:
+        c_irrev = _md_last_section(canon, "不可逆事实")
+        c_state = _md_last_section(canon, "角色状态变更")
+        c_anchor = _md_last_section(canon, "下一章必须承接锚点")
+        lines = []
+        lines.extend(_take_bullet_lines(c_irrev, 2))
+        lines.extend(_take_bullet_lines(c_state, 2))
+        lines.extend(_take_bullet_lines(c_anchor, 3))
+        payload = "\n".join(lines).strip() or _tomato_compact_context(canon, 700)
+        blocks.append(f"【最近事实台账（供承接）】\n{_tomato_compact_context(payload, 700)}")
+    if tail:
+        blocks.append(f"【上一章末尾原文片段（必须从这里接续）】\n{_tomato_compact_context(tail, 900)}")
+    return "\n\n".join(blocks).strip()
 
 
 def _outline_hash(text: str) -> str:
@@ -641,35 +723,31 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             recent_canon_text="\n\n".join(load_recent_canon_entries(project_name, limit=5)),
             log_callback=log_callback,
         )
-        keys = load_api_keys()
-        # 从项目配置读取文风，不再从全局key读取
         project_config = load_project_config(project_name)
         writing_style = str(project_config.get("writing_style", "standard") or "standard").lower()
         if writing_style not in {"standard", "tomato"}:
             writing_style = "standard"
         
-        embedder = get_embedder_config()
-        configured_memory_enabled = bool(keys.get("CREWAI_ENABLE_MEMORY", False))
-        memory_env = os.getenv("CREWAI_ENABLE_MEMORY")
-        if memory_env is not None:
-            configured_memory_enabled = memory_env.lower() == "true"
-        default_memory_enabled = configured_memory_enabled and (embedder is not None)
+        embedder = None
+        default_memory_enabled = False
         if log_callback:
-            if default_memory_enabled:
-                log_callback("🧠 CrewAI Memory 已启用（向量记忆可参与召回）", status="info")
-            elif configured_memory_enabled and embedder is None:
-                log_callback("⚠️ 已开启 CrewAI Memory，但未检测到通义千问 Key，已自动关闭本次记忆", status="warning")
-            else:
-                log_callback("ℹ️ CrewAI Memory 当前关闭（使用剧情圣经+摘要+台账链路）", status="info")
+            log_callback("ℹ️ CrewAI Memory 已禁用（使用剧情圣经+摘要+台账链路）", status="info")
 
         def _run_pipeline(compact_mode: bool, memory_enabled: bool):
+            prev_payload = previous_context
+            canon_payload = recent_canon_context
+            bible_payload = story_bible
+            if writing_style == "tomato":
+                prev_payload = _build_tomato_recap(project_name, int(chapter_number)) or previous_context
+                canon_payload = _tomato_compact_context(recent_canon_context, 1200)
+                bible_payload = _tomato_compact_context(story_bible, 3200)
             tasks = create_tasks(
                 agents,
-                story_bible,
+                bible_payload,
                 outline,
                 chapter_number,
-                previous_chapter_content=previous_context,
-                canon_context=recent_canon_context,
+                previous_chapter_content=prev_payload,
+                canon_context=canon_payload,
                 compact_mode=compact_mode,
                 writing_style=writing_style, # 传递文风参数
             )
