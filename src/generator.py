@@ -125,8 +125,8 @@ def _build_tomato_recap(project_name: str, chapter_number: int) -> str:
         return ""
     summary = load_chapter_summary(project_name, prev_num).strip()
     tail = load_chapter(project_name, f"第{prev_num}章.md")
-    tail = _chapter_tail_for_context(tail, max_chars=900).strip() if tail else ""
-    canon_entries = load_recent_canon_entries(project_name, limit=2)
+    tail = _chapter_tail_for_context(tail, max_chars=1200).strip() if tail else ""
+    canon_entries = load_recent_canon_entries(project_name, limit=3)
     canon = "\n\n".join([c.strip() for c in canon_entries if c.strip()])
     blocks = []
     if summary:
@@ -135,25 +135,25 @@ def _build_tomato_recap(project_name: str, chapter_number: int) -> str:
         s_anchor = _md_last_section(summary, "下一章承接锚点")
         lines = []
         if s_irrev:
-            lines.append(f"- 不可逆：{_tight_one_liner(s_irrev, 120)}")
+            lines.append(f"- 不可逆：{_tight_one_liner(s_irrev, 180)}")
         if s_end:
-            lines.append(f"- 章末：{_tight_one_liner(s_end, 140)}")
+            lines.append(f"- 章末：{_tight_one_liner(s_end, 200)}")
         if s_anchor:
-            lines.append(f"- 承接：{_tight_one_liner(s_anchor, 140)}")
-        payload = "\n".join(lines).strip() or _tomato_compact_context(summary, 700)
-        blocks.append(f"【上一章摘要（供承接）】\n{_tomato_compact_context(payload, 700)}")
+            lines.append(f"- 承接：{_tight_one_liner(s_anchor, 200)}")
+        payload = "\n".join(lines).strip() or _tomato_compact_context(summary, 900)
+        blocks.append(f"【上一章摘要（供承接）】\n{_tomato_compact_context(payload, 900)}")
     if canon:
         c_irrev = _md_last_section(canon, "不可逆事实")
         c_state = _md_last_section(canon, "角色状态变更")
         c_anchor = _md_last_section(canon, "下一章必须承接锚点")
         lines = []
-        lines.extend(_take_bullet_lines(c_irrev, 2))
-        lines.extend(_take_bullet_lines(c_state, 2))
-        lines.extend(_take_bullet_lines(c_anchor, 3))
-        payload = "\n".join(lines).strip() or _tomato_compact_context(canon, 700)
-        blocks.append(f"【最近事实台账（供承接）】\n{_tomato_compact_context(payload, 700)}")
+        lines.extend(_take_bullet_lines(c_irrev, 4))
+        lines.extend(_take_bullet_lines(c_state, 4))
+        lines.extend(_take_bullet_lines(c_anchor, 4))
+        payload = "\n".join(lines).strip() or _tomato_compact_context(canon, 900)
+        blocks.append(f"【最近事实台账（供承接）】\n{_tomato_compact_context(payload, 900)}")
     if tail:
-        blocks.append(f"【上一章末尾原文片段（必须从这里接续）】\n{_tomato_compact_context(tail, 900)}")
+        blocks.append(f"【上一章末尾原文片段（必须从这里接续）】\n{_tomato_compact_context(tail, 1200)}")
     return "\n\n".join(blocks).strip()
 
 

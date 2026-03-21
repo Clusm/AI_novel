@@ -122,10 +122,13 @@ def create_tasks(
         prev_info = f"\n\n【上一章承接信息（只用于无缝接续，禁止复述前情）】\n{previous_chapter_content.strip()}"
     
     base_context = ""
+    if outline_excerpt:
+        base_context += f"\n\n【本章大纲指引（必须严格执行）】\n{outline_excerpt}"
+
     if bible_for_desc:
         base_context += f"\n\n【剧情圣经（摘要）】\n{bible_for_desc}"
     if canon_context:
-        canon_limit = 2200 if writing_style == "tomato" else 1800
+        canon_limit = 2800 if writing_style == "tomato" else 1800
         base_context += f"\n\n【最近章节事实台账（强连续性输入）】\n{canon_context[:canon_limit]}"
     
     # 风格化指令注入
@@ -194,19 +197,15 @@ def create_tasks(
     
     if is_detailed_outline:
         # 已有详细大纲，跳过Agent 1
-        base_context += f"\n\n【本章详细细纲（已锁定）】\n{outline_excerpt}"
-        outline_source = "上述【本章详细细纲】"
+        outline_source = "上述【本章大纲指引】"
         # 不添加 task1
     else:
         # 没有详细大纲，需要AI生成
-        if outline_excerpt:
-            base_context += f"\n\n【用户大纲（摘录）】\n{outline_excerpt}"
-            
         task1 = Task(
             description=(
                 f"请基于以下信息，为第{current_chapter}章生成详细提纲。\n"
                 f"要求：\n"
-                f"1. 包含章节目标、主要情节、伏笔安排。\n"
+                f"1. 必须严格遵循【本章大纲指引】，将其中的目标、主要情节、伏笔安排展开。\n"
                 f"2. 【重要】在每个关键情节段落后，直接标注本段的【爽点类型】与【期待感来源】（例如：#爽点：扮猪吃虎；#期待：反派震惊）。\n"
                 f"{style_instruction}"
                 f"{outline_style_instruction}"
@@ -236,10 +235,11 @@ def create_tasks(
         "强制要求：\n"
         "0. 开头必须直接进入场景（动作/对白/冲突），禁止用“回顾/复盘/前情提要”式叙述；禁止出现‘上一章/上回/回想/不久前/转眼/与此同时’等总结承接句；禁止使用通用开场白（如天色/夜色/时间飞逝/几日后/一夜之间）。\n"
         "1. 必须承接上一章末状态，并在本章前20%篇幅落地。\n"
-        "2. 不得让角色状态回滚、瞬移、突然知道未出现信息。\n"
-        "3. 不得引入未交代的新核心设定替代既有设定。\n"
-        f"4. 【硬性字数】正文（不含摘要块）必须≥{min_chars}字。\n"
-        "4. 正文结束后追加摘要块，格式必须严格如下：\n"
+        "2. 【核心约束】必须严格执行【本章大纲指引】中的剧情目标，不得随意偏离主线或无脑注水。\n"
+        "3. 不得让角色状态回滚、瞬移、突然知道未出现信息。\n"
+        "4. 不得引入未交代的新核心设定替代既有设定。\n"
+        f"5. 【硬性字数】正文（不含摘要块）必须≥{min_chars}字。\n"
+        "6. 正文结束后追加摘要块，格式必须严格如下：\n"
         "[SUMMARY_BEGIN]\n"
         "本章目标达成：...\n"
         "不可逆事实：...\n"
@@ -256,7 +256,7 @@ def create_tasks(
         writer_instruction = (
             "根据提纲与人物设定直接写出完整正文并保证节奏紧凑。\n"
             "开头必须直接进入场景（动作/对白/冲突），禁止复述前情与通用开场白。\n"
-            "强制要求：承接上一章末状态；保持人设与世界观一致；不得新增未铺垫核心设定。\n"
+            "强制要求：承接上一章末状态；严格执行大纲指引；保持人设与世界观一致；不得新增未铺垫核心设定。\n"
             f"【硬性字数】正文（不含摘要块）必须≥{min_chars}字。\n"
             "正文结束后追加摘要块，格式必须严格如下：\n"
             "[SUMMARY_BEGIN]\n"
@@ -281,9 +281,9 @@ def create_tasks(
     # 4. 终极审校专家任务 (原Task 5)
     finalizer_instruction = (
         "作为主编，请先执行【一致性Gate】，再执行润色：\n"
-        "1. 必须项：承接上一章末状态；覆盖本章细纲关键事件；人设/战力/世界规则不跳变；\n"
+        "1. 必须项：承接上一章末状态；【核心约束】必须检查正文是否覆盖了【本章大纲指引】的关键事件；人设/战力/世界规则不跳变；\n"
         "2. 禁止项：角色突然知道未出现信息、设定回滚、无铺垫新增核心设定；\n"
-        "3. 如发现硬伤，先直接改正文，再润色，不要只做提示；\n"
+        "3. 如发现剧情偏离了大纲指引，请直接在正文中修正剧情走向，不要只做提示；\n"
         "4. 完成后输出最终定稿。\n\n"
         "【重要要求】\n"
         "A. 输出必须包含章节标题，格式为 Markdown 一级标题，例如：# 第N章 章节名；\n"
