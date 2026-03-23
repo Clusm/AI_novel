@@ -961,6 +961,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         left_layout.addLayout(header_row)
         
         self.outline_edit = QTextEdit()
+        self.outline_edit.setAcceptRichText(False)  # 强制仅接受纯文本粘贴，避免粘贴富文本导致格式错乱
         from gui.highlighter import MarkdownHighlighter
         self.highlighter = MarkdownHighlighter(self.outline_edit.document())
         self.outline_edit.setObjectName("MarkdownEditor")
