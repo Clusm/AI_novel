@@ -961,9 +961,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         left_layout.addLayout(header_row)
         
         self.outline_edit = QTextEdit()
-        self.outline_edit.setAcceptRichText(False)  # 强制仅接受纯文本粘贴，避免粘贴富文本导致格式错乱
-        from gui.highlighter import MarkdownHighlighter
-        self.highlighter = MarkdownHighlighter(self.outline_edit.document())
+        self.outline_edit.setAcceptRichText(False)
         self.outline_edit.setObjectName("MarkdownEditor")
         self.outline_edit.setPlaceholderText("# 故事标题\n\n## 第一章：起航\n在这里写下你的故事大纲...")
         self.outline_edit.textChanged.connect(self.on_outline_changed)
@@ -1483,6 +1481,9 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
                 continue
             if stripped in ("```", "````", "` `", "`  `"):
                 continue
+            if stripped.startswith("• "):
+                lines.append(line.replace("• ", "- ", 1))
+                continue
             lines.append(line)
         return "\n".join(lines)
 
@@ -1609,17 +1610,25 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         if self._outline_syncing:
             return
         
-        # 使用 QTimer 延迟触发，避免大文件输入卡顿
         if not hasattr(self, '_outline_timer'):
             self._outline_timer = QTimer(self)
             self._outline_timer.setSingleShot(True)
-            self._outline_timer.timeout.connect(self._detect_outline_chapters_async)
+            self._outline_timer.timeout.connect(self._sync_outline_derived_views)
         
-        self._outline_timer.start(500)  # 500ms 延迟
+        self._outline_timer.start(500)
 
-    def _detect_outline_chapters_async(self):
+    def _sync_outline_derived_views(self):
         plain_text = self.outline_edit.toPlainText()
-        self._outline_source = plain_text.strip()
+        raw_like_markdown = bool(re.search(r'(^|\n)\s*(#|[-*]\s|>\s|```)', plain_text))
+        if raw_like_markdown:
+            markdown_text = self._normalize_outline_markdown(plain_text)
+            self._outline_source = markdown_text.strip()
+            self._outline_syncing = True
+            self.outline_edit.setHtml(self._render_outline_html(markdown_text))
+            self._outline_syncing = False
+        self._detect_outline_chapters_from_plaintext(self._outline_source)
+
+    def _detect_outline_chapters_from_plaintext(self, plain_text):
         
         # 查找"分卷细纲"或类似的标记
         start_index = 0
@@ -1627,8 +1636,11 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         if match:
             start_index = match.end()
         
-        # 宽松匹配章节标题
-        chapter_matches = re.findall(r'(?:^|\n)\s*(?:#+|[-*])?\s*(?:第\s*\d+\s*章|Chapter\s*\d+|章节\s*\d+)', plain_text[start_index:], re.IGNORECASE)
+        # 仅匹配“第X章”形式
+        chapter_matches = re.findall(
+            r'第\s*\d+\s*章',
+            plain_text[start_index:],
+        )
         detected = len(chapter_matches)
         
         if detected > 0:
@@ -1638,14 +1650,14 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
             self.chapter_detect_label.setText("⚠️ 未检测到标准章节标题（建议使用第N章）")
 
     def _set_outline_markdown(self, text):
-        self._outline_source = text or ""
+        self._outline_source = self._normalize_outline_markdown(text or "")
         self._outline_syncing = True
-        self.outline_edit.setPlainText(self._outline_source)
+        self.outline_edit.setHtml(self._render_outline_html(self._outline_source))
         self._outline_syncing = False
-        self._detect_outline_chapters_async()
+        self._sync_outline_derived_views()
 
     def _get_outline_markdown(self):
-        return self.outline_edit.toPlainText().strip()
+        return self._outline_source.strip()
 
     def _refresh_banner_style(self, label, tone):
         label.setProperty("tone", tone)
