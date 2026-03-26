@@ -612,6 +612,38 @@ def ensure_story_bible(project_name: str, outline: str, chapter_number: int = 0,
     return bible_result
 
 
+def _resolve_writing_style(project_name: str) -> str:
+    """读取并标准化文风值，避免脏配置影响任务构建。"""
+    project_config = load_project_config(project_name)
+    writing_style = str(project_config.get("writing_style", "standard") or "standard").lower()
+    if writing_style not in {"standard", "tomato"}:
+        return "standard"
+    return writing_style
+
+
+def _build_previous_context(project_name: str, chapter_number: int) -> tuple[str, str]:
+    """
+    构建上一章承接输入：
+    - previous_context: 提供给任务描述使用
+    - previous_chapter_text: 保留全文给去重/承接修复逻辑
+    """
+    previous_summary = load_chapter_summary(project_name, max(1, chapter_number - 1)) if chapter_number > 1 else ""
+    previous_chapter_text = ""
+    previous_tail = ""
+    if chapter_number > 1:
+        previous_chapter_text = load_chapter(project_name, f"第{chapter_number - 1}章.md")
+        previous_tail = _chapter_tail_for_context(previous_chapter_text, max_chars=1200)
+
+    previous_context = ""
+    if previous_summary:
+        previous_context += f"【上一章摘要（仅供查阅，禁止复述前情）】\n{previous_summary.strip()}\n"
+    if previous_tail:
+        if previous_context:
+            previous_context += "\n"
+        previous_context += f"【上一章末尾原文片段（必须从这里接续）】\n{previous_tail.strip()}\n"
+    return previous_context, previous_chapter_text
+
+
 def generate_chapter(project_name, outline, chapter_number, log_callback=None):
     """生成章节内容"""
     run_logs = []
@@ -700,20 +732,7 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             run_logs.append(f"[{datetime.now().isoformat()}] {message}")
         
         agents = create_agents()
-        previous_summary = load_chapter_summary(project_name, max(1, int(chapter_number) - 1)) if int(chapter_number) > 1 else ""
-        previous_chapter_text = ""
-        previous_tail = ""
-        if int(chapter_number) > 1:
-            previous_chapter_text = load_chapter(project_name, f"第{int(chapter_number) - 1}章.md")
-            previous_tail = _chapter_tail_for_context(previous_chapter_text, max_chars=1200)
-
-        previous_context = ""
-        if previous_summary:
-            previous_context += f"【上一章摘要（仅供查阅，禁止复述前情）】\n{previous_summary.strip()}\n"
-        if previous_tail:
-            if previous_context:
-                previous_context += "\n"
-            previous_context += f"【上一章末尾原文片段（必须从这里接续）】\n{previous_tail.strip()}\n"
+        previous_context, previous_chapter_text = _build_previous_context(project_name, int(chapter_number))
         recent_canon_entries = load_recent_canon_entries(project_name, limit=3)
         recent_canon_context = "\n\n".join(recent_canon_entries).strip()
         story_bible = ensure_story_bible(
@@ -723,10 +742,7 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             recent_canon_text="\n\n".join(load_recent_canon_entries(project_name, limit=5)),
             log_callback=log_callback,
         )
-        project_config = load_project_config(project_name)
-        writing_style = str(project_config.get("writing_style", "standard") or "standard").lower()
-        if writing_style not in {"standard", "tomato"}:
-            writing_style = "standard"
+        writing_style = _resolve_writing_style(project_name)
         
         embedder = None
         default_memory_enabled = False

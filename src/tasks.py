@@ -93,6 +93,69 @@ def _extract_outline_excerpt_legacy(text: str, current_chapter: int, max_chars: 
     return _clamp_with_suffix(chapter_slice, max_chars, suffix)
 
 
+def _build_style_profile(writing_style: str) -> dict:
+    """集中管理文风相关提示与字数边界，避免 create_tasks 里散落分支。"""
+    if writing_style == "tomato":
+        min_chars = int(os.getenv("CHAPTER_MIN_CHARS_TOMATO", "2100"))
+        max_chars = int(os.getenv("CHAPTER_MAX_CHARS_TOMATO", "2600"))
+        profile = {
+            "style_instruction": (
+                "\n\n【文风要求：番茄/新媒体/快节奏模式】\n"
+                "1. 节奏极快：开章100字内必须出现冲突/刺激点；拒绝慢热铺垫。\n"
+                "2. 爽点密度：每500字至少一个情绪点（震惊/打脸/危机/反转/奖励）。\n"
+                "3. 语言克制：以动作与对白推动；少形容词、少抒情长段；拒绝谜语人、拒绝堆设定解释。\n"
+                "4. 结构适配：短句短段，单句成段；每段尽量不超过80字，利于手机阅读。\n"
+                "5. 断章钩子：章末必须留明确悬念或下一步行动目标。\n"
+            ),
+            "outline_style_instruction": (
+                "\n\n【提纲输出要求（番茄模式加严）】\n"
+                "1) 给出“开头钩子”（1-3句，直接冲突/对白起笔）；\n"
+                "2) 给出“爽点节奏表”，按每500字一个节点列出：触发点/情绪点/推进结果；\n"
+                "3) 给出“章末断章点”（一句话）；\n"
+            ),
+            "guardian_style_instruction": (
+                "\n\n【守护者输出要求（番茄模式加严）】\n"
+                "1) 输出极简清单：每条不超过20字；\n"
+                "2) 标出本章关键冲突点与情绪锚点；\n"
+                "3) 不要展开长篇设定解释。\n"
+            ),
+            "writer_style_instruction": (
+                "\n\n【写作执行要求（番茄模式加严）】\n"
+                "1) 章首用动作/对白/冲突起笔；\n"
+                "2) 每300-600字推进一次冲突或信息增量；\n"
+                "3) 多对白少独白，段落短；\n"
+                "4) 章末留钩子（危机/奖励/转折/任务）。\n"
+            ),
+            "finalizer_style_instruction": (
+                "\n\n【终审调整重点（番茄模式加严）】\n"
+                "1) 删除拖节奏的环境/抒情长段；\n"
+                "2) 合并冗余解释，把信息塞进对白与动作；\n"
+                "3) 强化章首钩子与章末悬念；\n"
+                "4) 保持短段阅读体验。\n"
+            ),
+        }
+    else:
+        min_chars = int(os.getenv("CHAPTER_MIN_CHARS", "3500"))
+        max_chars = int(os.getenv("CHAPTER_MAX_CHARS", "5500"))
+        profile = {
+            "style_instruction": (
+                "\n\n【文风要求：传统/正剧模式】\n"
+                "1. 节奏稳健：注重逻辑铺垫与草蛇灰线，情节推进要有合理性。\n"
+                "2. 沉浸体验：适当的环境渲染与心理刻画，增强代入感。\n"
+                "3. 逻辑严密：世界观与战力体系要自洽，拒绝无脑爽文套路。\n"
+            ),
+            "outline_style_instruction": "",
+            "guardian_style_instruction": "",
+            "writer_style_instruction": "",
+            "finalizer_style_instruction": "",
+        }
+    if max_chars < min_chars:
+        max_chars = min_chars + 200
+    profile["min_chars"] = min_chars
+    profile["max_chars"] = max_chars
+    return profile
+
+
 def create_tasks(
     agents,
     story_bible: str,
@@ -103,10 +166,7 @@ def create_tasks(
     compact_mode=False,
     writing_style="standard",
 ):
-    """
-    为6个Agent创建任务
-    writing_style: 'standard' (默认/传统) 或 'tomato' (番茄/新媒体/快节奏)
-    """
+    """构建章节生成任务链：提纲(可选) -> 守护者 -> 主写 -> 终审。"""
     tasks = []
 
     bible_for_desc = (story_bible or "").strip()
@@ -131,66 +191,14 @@ def create_tasks(
         canon_limit = 2800 if writing_style == "tomato" else 1800
         base_context += f"\n\n【最近章节事实台账（强连续性输入）】\n{canon_context[:canon_limit]}"
     
-    # 风格化指令注入
-    style_instruction = ""
-    outline_style_instruction = ""
-    guardian_style_instruction = ""
-    writer_style_instruction = ""
-    finalizer_style_instruction = ""
-    if writing_style == "tomato":
-        min_chars = int(os.getenv("CHAPTER_MIN_CHARS_TOMATO", "2100"))
-        max_chars = int(os.getenv("CHAPTER_MAX_CHARS_TOMATO", "2600"))
-    else:
-        min_chars = int(os.getenv("CHAPTER_MIN_CHARS", "3500"))
-        max_chars = int(os.getenv("CHAPTER_MAX_CHARS", "5500"))
-    if max_chars < min_chars:
-        max_chars = min_chars + 200
-    if writing_style == "tomato":
-        style_instruction = (
-            "\n\n【文风要求：番茄/新媒体/快节奏模式】\n"
-            "1. 节奏极快：开章100字内必须出现冲突/刺激点；拒绝慢热铺垫。\n"
-            "2. 爽点密度：每500字至少一个情绪点（震惊/打脸/危机/反转/奖励）。\n"
-            "3. 语言克制：以动作与对白推动；少形容词、少抒情长段；拒绝谜语人、拒绝堆设定解释。\n"
-            "4. 结构适配：短句短段，单句成段；每段尽量不超过80字，利于手机阅读。\n"
-            "5. 断章钩子：章末必须留明确悬念或下一步行动目标。\n"
-        )
-        outline_style_instruction = (
-            "\n\n【提纲输出要求（番茄模式加严）】\n"
-            "1) 给出“开头钩子”（1-3句，直接冲突/对白起笔）；\n"
-            "2) 给出“爽点节奏表”，按每500字一个节点列出：触发点/情绪点/推进结果；\n"
-            "3) 给出“章末断章点”（一句话）；\n"
-        )
-        guardian_style_instruction = (
-            "\n\n【守护者输出要求（番茄模式加严）】\n"
-            "1) 输出极简清单：每条不超过20字；\n"
-            "2) 标出本章关键冲突点与情绪锚点；\n"
-            "3) 不要展开长篇设定解释。\n"
-        )
-        writer_style_instruction = (
-            "\n\n【写作执行要求（番茄模式加严）】\n"
-            "1) 章首用动作/对白/冲突起笔；\n"
-            "2) 每300-600字推进一次冲突或信息增量；\n"
-            "3) 多对白少独白，段落短；\n"
-            "4) 章末留钩子（危机/奖励/转折/任务）。\n"
-        )
-        finalizer_style_instruction = (
-            "\n\n【终审调整重点（番茄模式加严）】\n"
-            "1) 删除拖节奏的环境/抒情长段；\n"
-            "2) 合并冗余解释，把信息塞进对白与动作；\n"
-            "3) 强化章首钩子与章末悬念；\n"
-            "4) 保持短段阅读体验。\n"
-        )
-    else:
-        style_instruction = (
-            "\n\n【文风要求：传统/正剧模式】\n"
-            "1. 节奏稳健：注重逻辑铺垫与草蛇灰线，情节推进要有合理性。\n"
-            "2. 沉浸体验：适当的环境渲染与心理刻画，增强代入感。\n"
-            "3. 逻辑严密：世界观与战力体系要自洽，拒绝无脑爽文套路。\n"
-        )
-        outline_style_instruction = ""
-        guardian_style_instruction = ""
-        writer_style_instruction = ""
-        finalizer_style_instruction = ""
+    style_profile = _build_style_profile(writing_style)
+    style_instruction = style_profile["style_instruction"]
+    outline_style_instruction = style_profile["outline_style_instruction"]
+    guardian_style_instruction = style_profile["guardian_style_instruction"]
+    writer_style_instruction = style_profile["writer_style_instruction"]
+    finalizer_style_instruction = style_profile["finalizer_style_instruction"]
+    min_chars = style_profile["min_chars"]
+    max_chars = style_profile["max_chars"]
 
     # 1. 大纲动态优化师任务 (根据是否已有详细大纲决定是否跳过)
     outline_source = "大纲优化师生成的提纲"

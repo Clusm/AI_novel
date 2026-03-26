@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QGraphicsDropShadowEffect,
     QRadioButton,
+    QSlider,
     QScrollArea,
     QSizeGrip,
     QSizePolicy,
@@ -64,7 +65,14 @@ class StreamRedirector(QObject):
 
 from gui.styles import APP_STYLESHEET
 from gui.workers import ChapterGenerationWorker
-from src.api import load_api_keys, save_api_keys
+from src.api import (
+    MODEL_ROLE_LABELS,
+    MODEL_ROLES,
+    load_api_keys,
+    save_api_keys,
+    resolve_runtime_role_models,
+    get_model_capability_limits,
+)
 from src.logger import add_run_log, clear_run_logs
 from src.project import (
     create_new_project,
@@ -325,7 +333,7 @@ class NewProjectDialog(QDialog, FramelessWindowMixin):
         content_layout.addWidget(self.name_edit)
 
         self.style_combo = QComboBox()
-        self.style_combo.addItems(["正常模式 (Standard)", "番茄模式 (Tomato)"])
+        self.style_combo.addItems(["正常模式", "番茄模式"])
         self.style_combo.setMinimumHeight(44)
         self.style_combo.setPlaceholderText("选择文风偏好")
         content_layout.addWidget(QLabel("文风偏好:"))
@@ -353,7 +361,7 @@ class NewProjectDialog(QDialog, FramelessWindowMixin):
 
     def get_style(self):
         text = self.style_combo.currentText()
-        return "tomato" if "Tomato" in text else "standard"
+        return "tomato" if "番茄" in text else "standard"
 
 
 class ApiSettingsDialog(QDialog, FramelessWindowMixin):
@@ -381,8 +389,8 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(32, 32, 32, 32)
-        content_layout.setSpacing(24)
+        content_layout.setContentsMargins(24, 16, 24, 24)
+        content_layout.setSpacing(16)
         
         header = QLabel("API & 模型设置")
         header.setObjectName("PageTitle")
@@ -394,9 +402,8 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         self.deepseek = QLineEdit(keys.get("DEEPSEEK_API_KEY", ""))
         self.qwen = QLineEdit(keys.get("DASHSCOPE_API_KEY", ""))
         self.kimi = QLineEdit(keys.get("MOONSHOT_API_KEY", ""))
-        self.auth_code = QLineEdit(keys.get("AUTH_CODE", ""))
         
-        for field in [self.deepseek, self.qwen, self.kimi, self.auth_code]:
+        for field in [self.deepseek, self.qwen, self.kimi]:
             field.setEchoMode(QLineEdit.Password)
             field.setMinimumHeight(40)
             
@@ -428,7 +435,6 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         form.addRow("DeepSeek Key", self.deepseek)
         form.addRow("通义千问 Key", self.qwen)
         form.addRow("Kimi Key", self.kimi)
-        form.addRow("系统授权码", self.auth_code)
         form.addRow("路由策略", self.route_profile)
         form.addRow("主写模型", self.writer_model)
         content_layout.addLayout(form)
@@ -466,13 +472,20 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
             selected_text = self.route_profile.currentText()
             route_key = self._route_map_rev.get(selected_text, "speed")
             
+            # 保持之前的 auth_code 不变
+            keys = load_api_keys()
+            current_auth = keys.get("AUTH_CODE", "")
+            
             save_api_keys(
                 self.deepseek.text().strip(),
                 self.qwen.text().strip(),
                 self.kimi.text().strip(),
-                self.auth_code.text().strip(),
+                current_auth,
                 route_key,
                 self.writer_model.currentText(),
+                keys.get("MODEL_PRESET", "default"),
+                keys.get("MODEL_PARAMS_BY_ROLE", {}),
+                keys.get("MODEL_DEFAULTS_BY_ROLE", {}),
             )
             self.result_label.setText("✅ 配置已保存")
             self.result_label.setProperty("tone", "success")
@@ -488,6 +501,372 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
             self.result_label.setProperty("tone", "danger")
             self.result_label.style().unpolish(self.result_label)
             self.result_label.style().polish(self.result_label)
+
+
+class ModelParamsDialog(QDialog, FramelessWindowMixin):
+    PRESET_LABELS = {
+        "default": "默认模式（当前默认参数）",
+        "custom": "自定义",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_frameless("", translucent=True)
+        self.setModal(True)
+        self.setMinimumWidth(520)
+        self._updating_ui = False
+        keys = load_api_keys()
+        self._keys_cache = keys
+        self._role_models = resolve_runtime_role_models(keys)
+        self._params_by_role = keys.get("MODEL_PARAMS_BY_ROLE", {})
+        self._defaults_by_role = keys.get("MODEL_DEFAULTS_BY_ROLE", {})
+        self._current_role = "outline"
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(0)
+
+        self.container = QFrame()
+        self.container.setObjectName("DialogContainer")
+        layout.addWidget(self.container)
+
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(self.title_bar)
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(24, 16, 24, 24)
+        content_layout.setSpacing(16)
+
+        header = QLabel("模型参数设置")
+        header.setObjectName("PageTitle")
+        content_layout.addWidget(header)
+
+        form = QFormLayout()
+        form.setVerticalSpacing(16)
+
+        self.preset_combo = QComboBox()
+        self.preset_combo.addItems(
+            [
+                self.PRESET_LABELS["default"],
+                self.PRESET_LABELS["custom"],
+            ]
+        )
+        self.preset_combo.setMinimumHeight(40)
+        form.addRow("参数模式", self.preset_combo)
+
+        self.role_combo = QComboBox()
+        self._role_display_to_key = {}
+        for role in MODEL_ROLES:
+            display = MODEL_ROLE_LABELS.get(role, role)
+            self._role_display_to_key[display] = role
+            self.role_combo.addItem(display)
+        self.role_combo.setMinimumHeight(40)
+        form.addRow("角色选择", self.role_combo)
+
+        self.model_info = QLabel("")
+        self.model_info.setObjectName("MutedText")
+        self.model_info.setWordWrap(True)
+        form.addRow("当前模型", self.model_info)
+
+        temp_row, self.slider_temperature, self.lbl_temperature_value = self._build_slider_row(0, 200, 10, "0.70")
+        form.addRow("Temperature", temp_row)
+
+        top_p_row, self.slider_top_p, self.lbl_top_p_value = self._build_slider_row(10, 100, 5, "0.90")
+        form.addRow("Top P", top_p_row)
+
+        self.max_tokens_edit = QLineEdit()
+        self.max_tokens_edit.setPlaceholderText("留空表示使用模型默认")
+        self.max_tokens_edit.setMinimumHeight(40)
+        form.addRow("Max Tokens", self.max_tokens_edit)
+
+        self.range_hint = QLabel("")
+        self.range_hint.setObjectName("MutedText")
+        self.range_hint.setWordWrap(True)
+
+        hint = QLabel("提示：修改任意参数后将自动切换为“自定义”模式；可按角色分别保存。")
+        hint.setObjectName("MutedText")
+        hint.setWordWrap(True)
+
+        content_layout.addLayout(form)
+        content_layout.addWidget(self.range_hint)
+        content_layout.addWidget(hint)
+
+        btn_layout = QHBoxLayout()
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setMinimumHeight(42)
+        self.save_btn = QPushButton("保存参数")
+        self.save_btn.setObjectName("PrimaryButton")
+        self.save_btn.setMinimumHeight(42)
+        btn_layout.addWidget(self.cancel_btn)
+        btn_layout.addWidget(self.save_btn)
+        content_layout.addLayout(btn_layout)
+
+        container_layout.addWidget(content)
+
+        self.cancel_btn.clicked.connect(self.reject)
+        self.save_btn.clicked.connect(self.save_settings)
+        self.preset_combo.currentIndexChanged.connect(self.on_preset_changed)
+        self.role_combo.currentIndexChanged.connect(self.on_role_changed)
+        self.slider_temperature.valueChanged.connect(self.on_param_edited)
+        self.slider_top_p.valueChanged.connect(self.on_param_edited)
+        self.max_tokens_edit.textChanged.connect(self.on_param_edited)
+
+        preset_val = keys.get("MODEL_PRESET", "default")
+        if preset_val not in {"default", "custom"}:
+            preset_val = "default"
+        self.set_preset_combo(preset_val)
+        self.on_role_changed()
+
+        apply_drop_shadow(self.container, blur_radius=40, y_offset=12, alpha=30)
+
+    def _build_slider_row(self, min_value, max_value, step, default_text):
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        slider = QSlider(Qt.Horizontal)
+        slider.setRange(min_value, max_value)
+        slider.setSingleStep(step)
+        slider.setPageStep(step)
+        slider.setMinimumHeight(32)
+        value_label = QLabel(default_text)
+        value_label.setFixedWidth(48)
+        value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(slider, 1)
+        layout.addWidget(value_label)
+        return row, slider, value_label
+
+    def set_preset_combo(self, preset_key):
+        label = self.PRESET_LABELS.get(preset_key, self.PRESET_LABELS["default"])
+        self._updating_ui = True
+        self.preset_combo.setCurrentText(label)
+        self._updating_ui = False
+
+    def _collect_params(self):
+        max_tokens_text = self.max_tokens_edit.text().strip()
+        max_tokens = None
+        if max_tokens_text:
+            try:
+                max_tokens = int(max_tokens_text)
+                if max_tokens <= 0:
+                    max_tokens = None
+            except ValueError:
+                max_tokens = None
+        return {
+            "temperature": round(self.slider_temperature.value() / 100.0, 2),
+            "top_p": round(self.slider_top_p.value() / 100.0, 2),
+            "max_tokens": max_tokens,
+        }
+
+    def _current_role_limits(self):
+        model_name = self._role_models.get(self._current_role, "")
+        return get_model_capability_limits(model_name)
+
+    def _sync_dynamic_ranges(self):
+        limits = self._current_role_limits()
+        t_min = int(round(float(limits["temperature"]["min"]) * 100))
+        t_max = int(round(float(limits["temperature"]["max"]) * 100))
+        t_step = max(1, int(round(float(limits["temperature"]["step"]) * 100)))
+        p_min = int(round(float(limits["top_p"]["min"]) * 100))
+        p_max = int(round(float(limits["top_p"]["max"]) * 100))
+        p_step = max(1, int(round(float(limits["top_p"]["step"]) * 100)))
+
+        self.slider_temperature.setRange(t_min, t_max)
+        self.slider_temperature.setSingleStep(t_step)
+        self.slider_temperature.setPageStep(t_step)
+        self.slider_top_p.setRange(p_min, p_max)
+        self.slider_top_p.setSingleStep(p_step)
+        self.slider_top_p.setPageStep(p_step)
+        model_name = self._role_models.get(self._current_role, "unknown")
+        self.model_info.setText(model_name)
+        self.range_hint.setText(
+            f"动态范围（{model_name}）："
+            f"Temperature {limits['temperature']['min']:.1f}-{limits['temperature']['max']:.1f}，"
+            f"Top P {limits['top_p']['min']:.1f}-{limits['top_p']['max']:.1f}，"
+            f"Max Tokens {int(limits['max_tokens']['min'])}-{int(limits['max_tokens']['max'])}"
+        )
+
+    def _params_for_role(self, role):
+        selected_label = self.preset_combo.currentText()
+        preset_key = "default" if selected_label == self.PRESET_LABELS["default"] else "custom"
+        source = self._defaults_by_role if preset_key == "default" else self._params_by_role
+        return source.get(role, {"temperature": 0.7, "top_p": 0.9, "max_tokens": None})
+
+    def apply_params_to_ui(self, params):
+        self._updating_ui = True
+        self.slider_temperature.setValue(int(round(float(params.get("temperature", 0.7)) * 100)))
+        self.slider_top_p.setValue(int(round(float(params.get("top_p", 0.9)) * 100)))
+        max_tokens = params.get("max_tokens", None)
+        self.max_tokens_edit.setText("" if max_tokens in (None, "") else str(max_tokens))
+        self._updating_ui = False
+        self._sync_slider_labels()
+
+    def _sync_slider_labels(self):
+        self.lbl_temperature_value.setText(f"{self.slider_temperature.value() / 100.0:.2f}")
+        self.lbl_top_p_value.setText(f"{self.slider_top_p.value() / 100.0:.2f}")
+
+    def on_preset_changed(self):
+        if self._updating_ui:
+            return
+        self._sync_dynamic_ranges()
+        self.apply_params_to_ui(self._params_for_role(self._current_role))
+
+    def on_role_changed(self):
+        if self._updating_ui:
+            return
+        role_display = self.role_combo.currentText()
+        self._current_role = self._role_display_to_key.get(role_display, "outline")
+        self._sync_dynamic_ranges()
+        self.apply_params_to_ui(self._params_for_role(self._current_role))
+
+    def on_param_edited(self):
+        if self._updating_ui:
+            return
+        self._sync_slider_labels()
+        self._params_by_role[self._current_role] = self._collect_params()
+        if self.preset_combo.currentText() != self.PRESET_LABELS["custom"]:
+            self.set_preset_combo("custom")
+
+    def save_settings(self):
+        keys = load_api_keys()
+        selected_label = self.preset_combo.currentText()
+        key_map = {v: k for k, v in self.PRESET_LABELS.items()}
+        preset_key = key_map.get(selected_label, "default")
+        params = self._collect_params()
+        save_api_keys(
+            keys.get("DEEPSEEK_API_KEY", ""),
+            keys.get("DASHSCOPE_API_KEY", ""),
+            keys.get("MOONSHOT_API_KEY", ""),
+            keys.get("AUTH_CODE", ""),
+            keys.get("ROUTE_PROFILE", "speed"),
+            keys.get("WRITER_MODEL", "auto"),
+            preset_key,
+            self._params_by_role,
+            self._defaults_by_role,
+        )
+        self.accept()
+
+
+class LicenseSettingsDialog(QDialog, FramelessWindowMixin):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_frameless("", translucent=True)
+        self.setModal(True)
+        self.setMinimumWidth(500)
+        
+        keys = load_api_keys()
+        from src.license import license_manager
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(0)
+        
+        self.container = QFrame()
+        self.container.setObjectName("DialogContainer")
+        layout.addWidget(self.container)
+        
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        
+        container_layout.addWidget(self.title_bar)
+        
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(24, 16, 24, 24)
+        content_layout.setSpacing(16)
+        
+        header = QLabel("系统授权管理")
+        header.setObjectName("PageTitle")
+        content_layout.addWidget(header)
+        
+        form = QFormLayout()
+        form.setVerticalSpacing(16)
+        
+        # 机器码 (明文显示，方便复制)
+        self.machine_code_display = QLineEdit(license_manager.get_machine_code())
+        self.machine_code_display.setReadOnly(True)
+        self.machine_code_display.setMinimumHeight(40)
+        
+        # 授权码
+        self.auth_code = QLineEdit(keys.get("AUTH_CODE", ""))
+        self.auth_code.setPlaceholderText("请输入有效的系统授权码...")
+        self.auth_code.setMinimumHeight(40)
+        
+        form.addRow("您的机器码:", self.machine_code_display)
+        form.addRow("系统授权码:", self.auth_code)
+        
+        content_layout.addLayout(form)
+        
+        # 状态显示
+        self.license_status_label = QLabel("未验证")
+        self.license_status_label.setStyleSheet("color: #64748b; font-weight: bold; font-size: 14px;")
+        self.license_status_label.setAlignment(Qt.AlignCenter)
+        content_layout.addWidget(self.license_status_label)
+        
+        btn_layout = QHBoxLayout()
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setMinimumHeight(42)
+        
+        self.btn_verify = QPushButton("验证并保存授权")
+        self.btn_verify.setObjectName("PrimaryButton")
+        self.btn_verify.setMinimumHeight(42)
+        
+        btn_layout.addWidget(self.cancel_btn)
+        btn_layout.addWidget(self.btn_verify)
+        
+        content_layout.addLayout(btn_layout)
+        container_layout.addWidget(content)
+        
+        self.cancel_btn.clicked.connect(self.reject)
+        self.btn_verify.clicked.connect(self.verify_and_save)
+        
+        apply_drop_shadow(self.container, blur_radius=40, y_offset=12, alpha=30)
+        
+        # 自动执行一次初始验证
+        if self.auth_code.text().strip():
+            self._do_verify(self.auth_code.text().strip())
+
+    def _do_verify(self, code):
+        from src.license import license_manager
+        result = license_manager.verify_license(code)
+        if result["valid"]:
+            expires_at = result.get("expires_at", "未知")[:10] if result.get("expires_at") else "永久"
+            self.license_status_label.setText(f"✅ 验证通过 (有效期至: {expires_at})")
+            self.license_status_label.setStyleSheet("color: #10b981; font-weight: bold; font-size: 14px;")
+            return True
+        else:
+            self.license_status_label.setText(f"❌ {result['message']}")
+            self.license_status_label.setStyleSheet("color: #ef4444; font-weight: bold; font-size: 14px;")
+            return False
+
+    def verify_and_save(self):
+        code = self.auth_code.text().strip()
+        if not code:
+            self.license_status_label.setText("未输入授权码")
+            self.license_status_label.setStyleSheet("color: #ef4444; font-weight: bold; font-size: 14px;")
+            return
+            
+        is_valid = self._do_verify(code)
+        if is_valid:
+            # 仅保存 auth_code，不覆盖其他 API 配置
+            keys = load_api_keys()
+            save_api_keys(
+                keys.get("DEEPSEEK_API_KEY", ""),
+                keys.get("DASHSCOPE_API_KEY", ""),
+                keys.get("MOONSHOT_API_KEY", ""),
+                code,
+                keys.get("ROUTE_PROFILE", "speed"),
+                keys.get("WRITER_MODEL", "auto"),
+                keys.get("MODEL_PRESET", "default"),
+                keys.get("MODEL_PARAMS_BY_ROLE", {}),
+                keys.get("MODEL_DEFAULTS_BY_ROLE", {}),
+            )
+            QThread.msleep(500)
+            self.accept()
 
 
 class MainWindow(QMainWindow, FramelessWindowMixin):
@@ -724,13 +1103,16 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self._corner_grips[3].setGeometry(rect.width() - grip_size, rect.height() - grip_size, grip_size, grip_size)
 
     def toggle_sidebar(self):
-        if self.sidebar.isVisible():
-            self.sidebar.hide()
-            self.btn_toggle_sidebar.setStyleSheet("background: #e2e8f0; color: #334155;")
-        else:
-            self.sidebar.show()
+        is_visible = self.sidebar.isVisible()
+        self.sidebar.setVisible(not is_visible)
+        
+        # 当侧边栏隐藏时，显示主面板中的汉堡按钮
+        if hasattr(self, 'btn_toggle_sidebar'):
+            self.btn_toggle_sidebar.setVisible(is_visible)
+            
+        # 当侧边栏重新显示时，重置主面板的分割比例
+        if not is_visible:
             self.splitter.setSizes([260, 1200])
-            self.btn_toggle_sidebar.setStyleSheet("")
 
     def _build_sidebar(self):
         panel = QFrame()
@@ -744,18 +1126,40 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         
         # Header (Draggable Area)
         header = DraggableHeader(self)
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(24, 10, 24, 4) # Reduced top/bottom margins (18->10, 8->4)
-        header_layout.setSpacing(2) # Reduced spacing (4->2)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(16, 12, 16, 12)
+        header_layout.setSpacing(12)
         
-        # Branding
-        title = QLabel("🤖 AI 写作助手")
-        title.setObjectName("Title")
-        header_layout.addWidget(title)
+        # Logo placeholder (can be replaced with QPixmap later)
+        logo = QLabel("🤖")
+        logo.setStyleSheet("font-size: 24px;")
+        header_layout.addWidget(logo)
         
-        self.version_label = QLabel("Pro v2.4")
+        # Branding Title
+        title_container = QWidget()
+        title_layout = QVBoxLayout(title_container)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(0)
+        
+        title = QLabel("AI_Novel_Writer")
+        title.setStyleSheet("font-size: 16px; font-weight: 800; color: #0f172a; padding: 0;")
+        title_layout.addWidget(title)
+        
+        self.version_label = QLabel("v2.4")
         self.version_label.setObjectName("MutedText")
-        header_layout.addWidget(self.version_label)
+        self.version_label.setStyleSheet("padding: 0;")
+        title_layout.addWidget(self.version_label)
+        
+        header_layout.addWidget(title_container)
+        header_layout.addStretch(1)
+        
+        # Toggle Sidebar Button (inside Sidebar Header)
+        self.btn_toggle_sidebar_left = QPushButton("◂")
+        self.btn_toggle_sidebar_left.setObjectName("IconButton")
+        self.btn_toggle_sidebar_left.setFixedSize(28, 28)
+        self.btn_toggle_sidebar_left.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle_sidebar_left.clicked.connect(self.toggle_sidebar)
+        header_layout.addWidget(self.btn_toggle_sidebar_left)
         
         layout.addWidget(header)
         
@@ -792,7 +1196,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         content_layout.addSpacing(12)
         content_layout.addWidget(QLabel("项目文风"))
         self.combo_project_style = QComboBox()
-        self.combo_project_style.addItems(["正常模式 (Standard)", "番茄模式 (Tomato)"])
+        self.combo_project_style.addItems(["正常模式", "番茄模式"])
         self.combo_project_style.setMinimumHeight(38)
         self.combo_project_style.currentIndexChanged.connect(self.update_project_style_config)
         content_layout.addWidget(self.combo_project_style)
@@ -803,10 +1207,22 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         box = QGroupBox("系统设置")
         box_layout = QVBoxLayout(box)
         box_layout.setContentsMargins(16, 24, 16, 16)
+        
         self.btn_api_settings = QPushButton("🔑 API 配置")
         self.btn_api_settings.setMinimumHeight(38)
-        box_layout.addWidget(self.btn_api_settings)
         self.btn_api_settings.clicked.connect(self.open_api_settings)
+        box_layout.addWidget(self.btn_api_settings)
+        
+        self.btn_license_settings = QPushButton("🛡️ 系统授权")
+        self.btn_license_settings.setMinimumHeight(38)
+        self.btn_license_settings.clicked.connect(self.open_license_settings)
+        box_layout.addWidget(self.btn_license_settings)
+
+        self.btn_model_params = QPushButton("⚙️ 参数设置")
+        self.btn_model_params.setMinimumHeight(38)
+        self.btn_model_params.clicked.connect(self.open_model_params_settings)
+        box_layout.addWidget(self.btn_model_params)
+        
         content_layout.addWidget(box)
         
         footer = QLabel("Powered by CrewAI")
@@ -833,7 +1249,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         # 2. Dashboard
         dashboard = QWidget()
         layout = QVBoxLayout(dashboard)
-        layout.setContentsMargins(36, 16, 36, 16) # Reduced top/bottom margins (26->16, 32->16)
+        layout.setContentsMargins(24, 16, 36, 16) # 减小左侧边距 (36->24)，使其与侧边栏对齐
         layout.setSpacing(12) # Reduced spacing (20->12)
         
         # Header
@@ -842,9 +1258,10 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         
         self.btn_toggle_sidebar = QPushButton("☰")
         self.btn_toggle_sidebar.setObjectName("IconButton")
-        self.btn_toggle_sidebar.setFixedSize(32, 32)
+        self.btn_toggle_sidebar.setFixedSize(28, 28) # 缩小汉堡按钮尺寸与折叠按钮一致
         self.btn_toggle_sidebar.setCursor(Qt.PointingHandCursor)
         self.btn_toggle_sidebar.clicked.connect(self.toggle_sidebar)
+        self.btn_toggle_sidebar.setVisible(False) # 默认隐藏，因为侧边栏默认展开
         header_layout.addWidget(self.btn_toggle_sidebar)
         
         header_layout.addSpacing(16)
@@ -1436,9 +1853,9 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         
         info = get_project_info(self.selected_project)
         style_val = info.get("writing_style", "standard")
-        style_map = {"standard": "正常模式 (Standard)", "tomato": "番茄模式 (Tomato)"}
+        style_map = {"standard": "正常模式", "tomato": "番茄模式"}
         self.combo_project_style.blockSignals(True)
-        self.combo_project_style.setCurrentText(style_map.get(style_val, "正常模式 (Standard)"))
+        self.combo_project_style.setCurrentText(style_map.get(style_val, "正常模式"))
         self.combo_project_style.blockSignals(False)
         chapters = info["generated_chapters"]
         total_planned = info.get("total_planned_chapters", 0)
@@ -1794,7 +2211,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
             return
         
         style_text = self.combo_project_style.currentText()
-        style_val = "tomato" if "Tomato" in style_text else "standard"
+        style_val = "tomato" if "番茄" in style_text else "standard"
         
         # 加载现有配置
         config = load_project_config(self.selected_project)
@@ -1817,7 +2234,17 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
     def open_api_settings(self):
         dialog = ApiSettingsDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            QMessageBox.information(self, "配置成功", "配置已保存")
+            QMessageBox.information(self, "配置成功", "API配置已保存")
+
+    def open_license_settings(self):
+        dialog = LicenseSettingsDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            QMessageBox.information(self, "授权成功", "系统授权已验证并保存")
+
+    def open_model_params_settings(self):
+        dialog = ModelParamsDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            QMessageBox.information(self, "配置成功", "模型参数已保存")
 
     def start_generation(self):
         if self.is_generating:

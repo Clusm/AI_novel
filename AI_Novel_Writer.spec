@@ -1,9 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
 
 datas = [('src', 'src')]
 binaries = []
 hiddenimports = ['litellm', 'tiktoken_ext.openai_public', 'tiktoken_ext']
+
 tmp_ret = collect_all('crewai')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('chromadb')
@@ -19,6 +20,11 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('ebooklib')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
+tmp_ret = collect_all('tokenizers')
+tokenizers_binaries = [b for b in tmp_ret[1] if b[0].endswith('.pyd')]
+binaries += tokenizers_binaries
+datas += copy_metadata('tokenizers')
+hiddenimports += tmp_ret[2]
 
 a = Analysis(
     ['run_app.py'],
@@ -26,7 +32,7 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[],
+    hookspath=['hooks'],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
@@ -45,7 +51,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

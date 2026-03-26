@@ -1,5 +1,37 @@
 
 APP_STYLESHEET = """
+/* =========================================================
+   QMessageBox 及标准弹窗定制样式
+   修复深色/亮色背景下文字看不清的问题
+   ========================================================= */
+QMessageBox {
+    background-color: #ffffff;
+}
+
+QMessageBox QLabel {
+    color: #1e293b;
+    font-size: 14px;
+    font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
+QMessageBox QPushButton {
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    min-width: 80px;
+    font-weight: bold;
+}
+
+QMessageBox QPushButton:hover {
+    background-color: #2563eb;
+}
+
+QMessageBox QPushButton:pressed {
+    background-color: #1d4ed8;
+}
+
 /* 全局设置 */
 QWidget {
     color: #1e293b;

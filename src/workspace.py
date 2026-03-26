@@ -4,11 +4,11 @@ import sys
 import ctypes
 from pathlib import Path
 
-# User config file location
+# 用户配置文件位置
 if sys.platform == "win32":
     CONFIG_DIR = os.path.join(os.environ["APPDATA"], "AI_Novel_Writer")
 else:
-    CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "ai_novel_writer")
+    CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "AI_Novel_Writer")
 
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 

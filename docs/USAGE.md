@@ -8,7 +8,7 @@
 
 1. 获取最新的安装包 `AI_Novel_Writer_Setup_vX.X.exe`。
 2. 双击安装，按照提示完成安装。
-3. 从桌面快捷方式或开始菜单启动 **AI Novel Writer Pro**。
+3. 从桌面快捷方式或开始菜单启动 **AI_Novel_Writer**。
 
 ### 方式 B：使用绿色版 (Portable)
 

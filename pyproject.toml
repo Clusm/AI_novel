@@ -1,6 +1,6 @@
 [project]
-name = "ai-novel-factory"
-version = "1.0.0"
+name = "ai-novel-writer"
+version = "2.4.0"
 description = "AI-powered novel writing factory with multi-agent system"
 dependencies = [
 

@@ -17,7 +17,46 @@ class ChapterGenerationWorker(QObject):
         self.count = count
         self.is_running = True
 
+    def _emit_and_finish(self, ok, message, status=None):
+        if status:
+            self.log.emit(message, status)
+        self.finished.emit(ok, message)
+
+    def _load_keys(self):
+        try:
+            return load_api_keys(), None
+        except Exception as e:
+            return None, str(e)
+
+    def _validate_required_keys(self, keys):
+        deepseek_key = (keys.get("DEEPSEEK_API_KEY") or "").strip()
+        qwen_key = (keys.get("DASHSCOPE_API_KEY") or "").strip()
+        kimi_key = (keys.get("MOONSHOT_API_KEY") or "").strip()
+        missing_required = []
+        if not deepseek_key:
+            missing_required.append("DeepSeek")
+        if not qwen_key:
+            missing_required.append("通义千问")
+        return missing_required, deepseek_key, qwen_key, kimi_key
+
+    def _run_connectivity_checks(self, route_profile, checks):
+        required_failed = False
+        for provider, api_key in checks:
+            self.log.emit(f"📡 正在连接 {provider} API...", "info")
+            try:
+                ok, msg = test_api_connection(provider, api_key, route_profile=route_profile)
+            except Exception as e:
+                ok, msg = False, str(e)
+            if ok:
+                self.log.emit(f"✅ {provider}：连接正常", "success")
+            else:
+                self.log.emit(f"❌ {provider}：连接失败 - {msg}", "error")
+                if provider in ("deepseek", "qwen"):
+                    required_failed = True
+        return required_failed
+
     def run(self):
+        """工作线程入口：先做配置与连通性校验，再执行章节生成。"""
         try:
             self.log.emit("🚀 任务启动，正在加载 AI 模型与配置...", "info")
             
@@ -25,10 +64,9 @@ class ChapterGenerationWorker(QObject):
             import time
             time.sleep(0.5)
 
-            try:
-                keys = load_api_keys()
-            except Exception as e:
-                self.log.emit(f"❌ 读取配置文件失败: {str(e)}", "error")
+            keys, load_error = self._load_keys()
+            if load_error:
+                self.log.emit(f"❌ 读取配置文件失败: {load_error}", "error")
                 self.finished.emit(False, "无法读取 API 配置")
                 return
 
@@ -37,20 +75,12 @@ class ChapterGenerationWorker(QObject):
 
             self.log.emit("🔎 正在检测 API Key 配置与连通性...", "info")
             
-            deepseek_key = (keys.get("DEEPSEEK_API_KEY") or "").strip()
-            qwen_key = (keys.get("DASHSCOPE_API_KEY") or "").strip()
-            kimi_key = (keys.get("MOONSHOT_API_KEY") or "").strip()
-
-            missing_required = []
-            if not deepseek_key:
-                missing_required.append("DeepSeek")
-            if not qwen_key:
-                missing_required.append("通义千问")
+            missing_required, deepseek_key, qwen_key, kimi_key = self._validate_required_keys(keys)
 
             if missing_required:
                 self.log.emit(f"❌ 缺少必要 API Key：{', '.join(missing_required)}", "error")
                 self.log.emit("💡 请前往「系统设置 → API 配置」填入 Key 并保存。", "warning")
-                self.finished.emit(False, "必要 API Key 缺失")
+                self._emit_and_finish(False, "必要 API Key 缺失")
                 return
 
             if writer_model == "kimi" and not kimi_key:
@@ -60,25 +90,10 @@ class ChapterGenerationWorker(QObject):
             if kimi_key:
                 checks.append(("kimi", kimi_key))
 
-            required_failed = False
-            for provider, api_key in checks:
-                self.log.emit(f"📡 正在连接 {provider} API...", "info")
-                # 再次强制 try-catch 确保测试函数不抛出异常中断流程
-                try:
-                    ok, msg = test_api_connection(provider, api_key, route_profile=route_profile)
-                except Exception as e:
-                    ok, msg = False, str(e)
-
-                if ok:
-                    self.log.emit(f"✅ {provider}：连接正常", "success")
-                else:
-                    self.log.emit(f"❌ {provider}：连接失败 - {msg}", "error")
-                    if provider in ("deepseek", "qwen"):
-                        required_failed = True
+            required_failed = self._run_connectivity_checks(route_profile, checks)
             
             if required_failed:
-                self.log.emit("⛔ 核心 API 连接失败，无法继续生成。", "error")
-                self.finished.emit(False, "核心 API 连接失败")
+                self._emit_and_finish(False, "核心 API 连接失败", status="error")
                 return
 
             self.log.emit("✅ API 检测通过，正在初始化多 Agent 工作流...", "success")
@@ -101,12 +116,12 @@ class ChapterGenerationWorker(QObject):
                 self.start_chapter + self.count - 1,
                 log_callback=log_callback
             )
-            self.finished.emit(True, "所有章节生成完成！")
+            self._emit_and_finish(True, "所有章节生成完成！")
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
             self.log.emit(f"❌ 生成过程中发生未捕获异常:\n{error_details}", "error")
-            self.finished.emit(False, f"生成过程中断: {e}")
+            self._emit_and_finish(False, f"生成过程中断: {e}")
 
     def stop(self):
         self.is_running = False
