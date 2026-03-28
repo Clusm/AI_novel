@@ -1,7 +1,12 @@
 """
-章节生成：使用 CrewAI 多 Agent 流水线。
-记忆功能：memory=True 时需配置 embedder。本项目使用通义千问（DashScope）的
-OpenAI 兼容 embedding 接口，与现有 DeepSeek / Kimi / 千问 三个 API 并存，无需额外 Key。
+章节生成模块 - 使用 CrewAI 多 Agent 流水线生成小说章节
+
+核心功能：
+1. 多 Agent 协作：大纲优化师、世界观守护者、主写手、审校专家
+2. 记忆功能：使用通义千问 embedding 接口实现长期记忆
+3. 剧情圣经：自动提炼全局设定，保持章节一致性
+4. 番茄模式：专为番茄小说优化的紧凑生成模式
+5. 开头去重：自动检测并改写重复的章节开头
 """
 
 import os
@@ -53,9 +58,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 def get_embedder_config():
     """
-    返回 CrewAI 记忆用的 embedder 配置。
-    使用通义千问 DashScope 的 OpenAI 兼容 embedding（text-embedding-v3），
-    与项目已有的 DeepSeek、Kimi、千问 API 一致，记忆功能可正常使用。
+    获取 CrewAI 记忆用的 embedder 配置
+    使用通义千问 DashScope 的 OpenAI 兼容 embedding 接口
+    返回：embedder 配置字典，若无 API Key 则返回 None
     """
     keys = load_api_keys()
     api_key = keys.get("DASHSCOPE_API_KEY", "").strip()
@@ -72,6 +77,10 @@ def get_embedder_config():
 
 
 def _tomato_compact_context(text: str, max_chars: int) -> str:
+    """
+    番茄模式专用：压缩上下文文本
+    移除多余换行，超长文本截断加省略号
+    """
     raw = (text or "").strip()
     if not raw:
         return ""
@@ -82,6 +91,10 @@ def _tomato_compact_context(text: str, max_chars: int) -> str:
 
 
 def _md_last_section(text: str, header: str) -> str:
+    """
+    提取 Markdown 文本中最后一个指定标题下的内容
+    用于从摘要中提取特定小节
+    """
     raw = (text or "").strip()
     if not raw:
         return ""
@@ -98,6 +111,7 @@ def _md_last_section(text: str, header: str) -> str:
 
 
 def _tight_one_liner(text: str, max_chars: int) -> str:
+    """将文本压缩为单行，超长截断"""
     s = re.sub(r"\s+", " ", (text or "").strip())
     if not s:
         return ""
@@ -107,6 +121,7 @@ def _tight_one_liner(text: str, max_chars: int) -> str:
 
 
 def _take_bullet_lines(text: str, max_items: int) -> list[str]:
+    """提取文本中的项目符号行，最多返回 max_items 条"""
     out = []
     for line in (text or "").splitlines():
         s = line.strip()
@@ -120,6 +135,10 @@ def _take_bullet_lines(text: str, max_items: int) -> list[str]:
 
 
 def _build_tomato_recap(project_name: str, chapter_number: int) -> str:
+    """
+    番茄模式专用：构建上一章回顾内容
+    提取上一章摘要、事实台账、末尾原文，用于承接
+    """
     prev_num = int(chapter_number) - 1
     if prev_num <= 0:
         return ""
@@ -158,10 +177,12 @@ def _build_tomato_recap(project_name: str, chapter_number: int) -> str:
 
 
 def _outline_hash(text: str) -> str:
+    """计算大纲文本的 SHA256 哈希值，用于检测大纲变化"""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _clamp(text: str, max_chars: int) -> str:
+    """截断文本到指定最大长度，末尾加省略号"""
     if max_chars <= 0:
         return ""
     if len(text) <= max_chars:
@@ -170,6 +191,10 @@ def _clamp(text: str, max_chars: int) -> str:
 
 
 def _build_chapter_summary(chapter_number: int, content: str, max_chars: int = 900) -> str:
+    """
+    构建章节摘要（正则提取版）
+    包含：本章目标、不可逆事实、章末状态、下一章承接锚点
+    """
     raw = (content or "").strip()
     body = re.sub(r"^#.*\n?", "", raw).strip()
     body = re.sub(r"\n{2,}", "\n", body)
@@ -193,10 +218,12 @@ def _build_chapter_summary(chapter_number: int, content: str, max_chars: int = 9
 
 
 def _extract_sentences(text: str):
+    """按句号、感叹号、问号分割文本为句子列表"""
     return [c.strip() for c in re.split(r"(?<=[。！？])", text) if c.strip()]
 
 
 def _extract_resource_mentions(text: str):
+    """提取文本中的资源/能力变更提及（如道源点、道纹、突破等）"""
     patterns = [
         r"道源点[+＋-]?\d+",
         r"道纹[^，。；\n]{0,20}",
@@ -216,6 +243,10 @@ def _extract_resource_mentions(text: str):
 
 
 def _extract_summary_block(text: str) -> tuple[str, str]:
+    """
+    从文本中提取 [SUMMARY_BEGIN]...[SUMMARY_END] 标记的摘要块
+    返回：(正文, 摘要)
+    """
     if not text:
         return "", ""
     pattern = r"\[SUMMARY_BEGIN\]([\s\S]*?)\[SUMMARY_END\]"
@@ -228,6 +259,7 @@ def _extract_summary_block(text: str) -> tuple[str, str]:
 
 
 def _normalize_summary(chapter_number: int, summary_text: str, max_chars: int = 900) -> str:
+    """标准化摘要格式，确保以标题开头"""
     summary = (summary_text or "").strip()
     if not summary:
         return ""
@@ -237,7 +269,10 @@ def _normalize_summary(chapter_number: int, summary_text: str, max_chars: int = 
 
 
 def _generate_summary_via_llm(content: str, llm, max_chars: int = 900) -> str:
-    """使用 LLM 生成高质量章节摘要"""
+    """
+    使用 LLM 生成高质量章节摘要
+    包含：核心情节、关键信息、角色状态、不可逆事实、承接锚点
+    """
     prompt = f"""
 请为以下章节正文生成一份高质量的摘要，主要目的是**指导下一章的续写**。
 请务必包含以下要素，并保持条理清晰：
@@ -261,6 +296,7 @@ def _generate_summary_via_llm(content: str, llm, max_chars: int = 900) -> str:
 
 
 def _count_body_chars(text: str) -> int:
+    """统计正文有效字数（排除标题、空白、摘要块）"""
     raw = (text or "").strip()
     raw, _ = _extract_summary_block(raw)
     raw = re.sub(r"^#.*\n?", "", raw).strip()
@@ -269,6 +305,10 @@ def _count_body_chars(text: str) -> int:
 
 
 def _expand_chapter_to_min_length(agent, chapter_number: int, body_text: str, min_chars: int, max_chars: int) -> str:
+    """
+    扩写章节正文到最小字数要求
+    约束：不改变剧情、不新增人物/设定、只补充细节
+    """
     current_len = _count_body_chars(body_text)
     if current_len >= min_chars:
         return body_text
@@ -300,6 +340,13 @@ def _expand_chapter_to_min_length(agent, chapter_number: int, body_text: str, mi
 
 
 def _sanitize_final_content(content: str, chapter_number: int) -> str:
+    """
+    清理最终章节内容
+    - 统一换行符
+    - 移除摘要块
+    - 移除多余的分段标题
+    - 确保以一级标题开头
+    """
     text = (content or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     if not text:
         return f"# 第{chapter_number}章\n"
@@ -330,6 +377,7 @@ def _sanitize_final_content(content: str, chapter_number: int) -> str:
 
 
 def _chapter_body_without_title(text: str) -> str:
+    """移除章节标题，返回纯正文"""
     raw = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     raw, _ = _extract_summary_block(raw)
     raw = re.sub(r"^#.*\n?", "", raw).lstrip()
@@ -337,6 +385,7 @@ def _chapter_body_without_title(text: str) -> str:
 
 
 def _chapter_opening_for_similarity(text: str, max_chars: int = 520) -> str:
+    """提取章节开头片段，用于相似度检测"""
     body = _chapter_body_without_title(text)
     if not body:
         return ""
@@ -355,6 +404,7 @@ def _chapter_opening_for_similarity(text: str, max_chars: int = 520) -> str:
 
 
 def _chapter_tail_for_context(text: str, max_chars: int = 1200) -> str:
+    """提取章节末尾片段，用于承接上下文"""
     body = _chapter_body_without_title(text)
     if not body:
         return ""
@@ -365,15 +415,17 @@ def _chapter_tail_for_context(text: str, max_chars: int = 1200) -> str:
 
 
 def _normalize_similarity_text(text: str) -> str:
+    """标准化文本用于相似度比较（移除空白和引号）"""
     t = (text or "").strip()
     if not t:
         return ""
     t = re.sub(r"\s+", "", t)
-    t = re.sub(r"[“”\"'‘’]", "", t)
+    t = re.sub(r"[""]\"''']", "", t)
     return t
 
 
 def _similarity_ratio(a: str, b: str) -> float:
+    """计算两段文本的相似度（0.0-1.0）"""
     na = _normalize_similarity_text(a)
     nb = _normalize_similarity_text(b)
     if not na or not nb:
@@ -382,6 +434,7 @@ def _similarity_ratio(a: str, b: str) -> float:
 
 
 def _split_opening_and_rest(body: str) -> tuple[str, str]:
+    """将正文分割为开头部分和剩余部分"""
     parts = [p.strip() for p in (body or "").split("\n\n") if p.strip()]
     if not parts:
         return "", ""
@@ -406,14 +459,18 @@ def _rewrite_opening_via_llm(
     current_opening: str,
     next_context: str,
 ) -> str:
+    """
+    使用 LLM 改写章节开头
+    目的：避免与上一章开头雷同，同时保持剧情连贯
+    """
     prompt = f"""
-你是中文网文主编。请将“当前章开头”改写为一个明显不同、但完全连贯的开场。
+你是中文网文主编。请将"当前章开头"改写为一个明显不同、但完全连贯的开场。
 
 硬性要求：
 1) 只输出改写后的开头正文，不要输出标题，不要输出解释。
 2) 字数控制在 220–420 字。
 3) 必须从上一章末尾状态直接接续，用动作/对白/冲突起笔，立刻推进剧情。
-4) 禁止复述前情，禁止写“回顾/复盘/前情提要/上一章/上回/回想/不久前/转眼/与此同时”等承接句。
+4) 禁止复述前情，禁止写"回顾/复盘/前情提要/上一章/上回/回想/不久前/转眼/与此同时"等承接句。
 5) 禁止使用通用开场白（如天色/夜色/时间飞逝/几日后/一夜之间）。
 6) 不改变当前章既定事件顺序与结果，只改开头表达方式，并保证能自然衔接后续正文。
 
@@ -444,6 +501,10 @@ def _dedupe_opening_if_needed(
     llm,
     log_callback=None,
 ) -> str:
+    """
+    检测并处理章节开头重复问题
+    若当前章开头与上一章相似度超过阈值，则调用 LLM 改写
+    """
     if not chapter_text.strip() or not previous_chapter_text.strip():
         return chapter_text
 
@@ -484,6 +545,11 @@ def _dedupe_opening_if_needed(
 
 
 def _build_canon_ledger(chapter_number: int, content: str, max_chars: int = 1600) -> str:
+    """
+    构建章节事实台账
+    包含：不可逆事实、角色状态变更、资源变更、伏笔状态、承接锚点
+    用于后续章节保持一致性
+    """
     body = re.sub(r"^#.*\n?", "", (content or "").strip()).strip()
     body = re.sub(r"\n{2,}", "\n", body)
     sentences = _extract_sentences(body)
@@ -507,6 +573,7 @@ def _build_canon_ledger(chapter_number: int, content: str, max_chars: int = 1600
 
 
 def _task_output_text(task) -> str:
+    """从 CrewAI Task 对象中提取输出文本"""
     output = getattr(task, "output", None)
     if not output:
         return ""
@@ -517,9 +584,16 @@ def _task_output_text(task) -> str:
 
 def ensure_story_bible(project_name: str, outline: str, chapter_number: int = 0, recent_canon_text: str = "", log_callback=None) -> str:
     """
-    生成/更新项目的「剧情圣经」。
-    目的：避免每章都把完整大纲塞进任务 description（会触发 embedding query 超限、成本上升）。
-    逻辑：当 outline_hash 变化或圣经为空时，使用一个轻量单任务 Crew 重新提炼。
+    生成/更新项目的「剧情圣经」
+
+    剧情圣经是一份全局设定文档，包含：
+    - 题材基调、世界观规则
+    - 主线目标与阶段推进
+    - 核心人物卡、关系网
+    - 爽点配方、伏笔表、写作约束
+
+    目的：避免每章都传入完整大纲，减少 token 消耗和 embedding 压力
+    触发条件：大纲变化、首次生成、或每隔 N 章增量更新
     """
     config = load_project_config(project_name)
     current_hash = _outline_hash(outline or "")
@@ -541,7 +615,6 @@ def ensure_story_bible(project_name: str, outline: str, chapter_number: int = 0,
     keys = load_api_keys()
     api_key = (keys.get("DASHSCOPE_API_KEY") or "").strip()
     if not api_key:
-        # 没有千问 key 时不强制生成，返回现有内容（可能为空）
         return existing_bible
 
     if log_callback:
@@ -613,7 +686,7 @@ def ensure_story_bible(project_name: str, outline: str, chapter_number: int = 0,
 
 
 def _resolve_writing_style(project_name: str) -> str:
-    """读取并标准化文风值，避免脏配置影响任务构建。"""
+    """读取并标准化文风值（standard/tomato），避免脏配置"""
     project_config = load_project_config(project_name)
     writing_style = str(project_config.get("writing_style", "standard") or "standard").lower()
     if writing_style not in {"standard", "tomato"}:
@@ -623,9 +696,8 @@ def _resolve_writing_style(project_name: str) -> str:
 
 def _build_previous_context(project_name: str, chapter_number: int) -> tuple[str, str]:
     """
-    构建上一章承接输入：
-    - previous_context: 提供给任务描述使用
-    - previous_chapter_text: 保留全文给去重/承接修复逻辑
+    构建上一章承接输入
+    返回：(previous_context 用于任务描述, previous_chapter_text 全文用于去重)
     """
     previous_summary = load_chapter_summary(project_name, max(1, chapter_number - 1)) if chapter_number > 1 else ""
     previous_chapter_text = ""
@@ -645,36 +717,48 @@ def _build_previous_context(project_name: str, chapter_number: int) -> tuple[str
 
 
 def generate_chapter(project_name, outline, chapter_number, log_callback=None):
-    """生成章节内容"""
+    """
+    核心函数：生成单个章节
+
+    流程：
+    1. 创建 Agent 团队（大纲优化师、世界观守护者、主写手、审校专家）
+    2. 加载上下文（上一章摘要、事实台账、剧情圣经）
+    3. 执行 CrewAI 流水线
+    4. 后处理（扩写、去重、保存摘要和台账）
+
+    参数：
+    - project_name: 项目名称
+    - outline: 故事大纲
+    - chapter_number: 章节序号
+    - log_callback: 日志回调函数
+
+    返回：生成的章节内容
+    """
     run_logs = []
     autosaved_from_finalizer = False
-    # 共享状态，用于step_callback和主循环之间的通信
     shared_state = {
         "finalizer_output": "",
         "last_update": time.time()
     }
 
-    # 设置项目专属的CrewAI存储目录
     project_storage_dir = os.path.join(workspace_manager.get_projects_dir(), project_name, ".crewai")
     os.makedirs(project_storage_dir, exist_ok=True)
-    # 保存原本的存储目录以便恢复（可选，但在单用户场景下直接覆盖即可）
     os.environ["CREWAI_STORAGE_DIR"] = os.path.abspath(project_storage_dir)
 
-    # 1. 创建线程安全的日志队列，解决跨线程操作UI导致的死锁问题
     log_queue = queue.Queue()
 
     def safe_log(message, status="info"):
         """线程安全的日志记录函数"""
         log_queue.put((message, status))
 
-    # 定义Step回调函数，用于实时显示Agent思考过程
-    # 同时增加实时保存逻辑，防止最后一步挂起
     def step_callback(step_output):
+        """
+        CrewAI 步骤回调 - 实时显示 Agent 思考过程
+        同时实现终审稿的提前保存，防止最后一步挂起导致内容丢失
+        """
         nonlocal autosaved_from_finalizer
         if log_callback:
-            # 尝试提取Agent名称和思考内容
             try:
-                # 无论什么情况，先打个心跳日志
                 timestamp = datetime.now().strftime("%H:%M:%S")
                 if isinstance(step_output, dict):
                     agent_text = str(step_output.get("agent", ""))
@@ -686,8 +770,7 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                         text_value = str(value or "")
                         if len(text_value) > len(candidate):
                             candidate = text_value
-                    
-                    # 更新共享状态中的最新输出
+
                     if "终极审校专家" in agent_text and len(candidate) > len(shared_state["finalizer_output"]):
                         shared_state["finalizer_output"] = candidate
                         shared_state["last_update"] = time.time()
@@ -706,21 +789,19 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                     agent = step_output.get("agent", "Agent")
                     thought = str(step_output.get("thought", ""))
                     tool_output = str(step_output.get("tool_output", ""))
-                    
+
                     if thought:
                         safe_log(f"[{timestamp}] 🤖 {agent} 思考中...", status="info")
-                        # 在控制台打印详细思考内容以便调试
                         try:
                             print(f"\n[{timestamp}] {agent}: {thought[:200]}...")
                         except:
                             pass
                     if tool_output:
                         safe_log(f"[{timestamp}] 🛠️ 调用工具...", status="info")
-                elif hasattr(step_output, "agent"): # CrewAI对象
+                elif hasattr(step_output, "agent"):
                      agent = getattr(step_output, "agent", "Agent")
                      safe_log(f"[{timestamp}] ⚡ {agent} 正在执行...", status="info")
                 else:
-                    # 如果是对象或其他格式，尝试转字符串
                     safe_log(f"[{timestamp}] ⚡ 系统正在处理...", status="info")
             except Exception:
                 pass
@@ -730,7 +811,7 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             message = "开始生成第{}章...".format(chapter_number)
             log_callback(message)
             run_logs.append(f"[{datetime.now().isoformat()}] {message}")
-        
+
         agents = create_agents()
         previous_context, previous_chapter_text = _build_previous_context(project_name, int(chapter_number))
         recent_canon_entries = load_recent_canon_entries(project_name, limit=3)
@@ -743,13 +824,19 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             log_callback=log_callback,
         )
         writing_style = _resolve_writing_style(project_name)
-        
+
         embedder = None
         default_memory_enabled = False
         if log_callback:
             log_callback("ℹ️ CrewAI Memory 已禁用（使用剧情圣经+摘要+台账链路）", status="info")
 
         def _run_pipeline(compact_mode: bool, memory_enabled: bool):
+            """
+            执行章节生成流水线
+
+            compact_mode: 精简模式（失败时的降级方案）
+            memory_enabled: 是否启用 CrewAI 记忆功能
+            """
             prev_payload = previous_context
             canon_payload = recent_canon_context
             bible_payload = story_bible
@@ -765,7 +852,7 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                 previous_chapter_content=prev_payload,
                 canon_context=canon_payload,
                 compact_mode=compact_mode,
-                writing_style=writing_style, # 传递文风参数
+                writing_style=writing_style,
             )
             mode_label = "精简链路" if compact_mode else "完整链路"
             if log_callback:
@@ -782,7 +869,6 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                 embedder=embedder if memory_enabled else None,
                 step_callback=step_callback,
             )
-            # 捕获Agent思考过程
             if log_callback:
                 log_callback("💡 Agent 开始思考与协作... (这可能需要几分钟)")
             kickoff_timeout = int(os.getenv("CREW_KICKOFF_TIMEOUT_SEC", "1500"))
@@ -794,7 +880,6 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             deadline = time.time() + kickoff_timeout
             try:
                 while True:
-                    # 消费并显示队列中的日志（在主线程执行UI更新）
                     while not log_queue.empty():
                         try:
                             msg, status = log_queue.get_nowait()
@@ -807,10 +892,8 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                         result = future.result()
                         future_done = True
                         break
-                    
-                    # 优先检查通过 step_callback 捕获的终审稿内容
+
                     if len(shared_state["finalizer_output"]) > 800:
-                        # 如果最后一次更新超过 45 秒，认为可能卡住，尝试提前结束
                         if time.time() - shared_state["last_update"] > 45:
                             recovered_output = shared_state["finalizer_output"]
                             if log_callback:
@@ -822,13 +905,12 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                         if len(candidate) > 1200:
                             recovered_output = candidate
                             break
-                    
+
                     if time.time() >= deadline:
-                        # 超时时优先尝试恢复 step_callback 捕获的内容
                         if len(shared_state["finalizer_output"]) > 500:
                              recovered_output = shared_state["finalizer_output"]
                              break
-                        
+
                         if tasks:
                             candidate = _task_output_text(tasks[-1]).strip()
                             if candidate:
@@ -839,7 +921,6 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             finally:
                 executor.shutdown(wait=False, cancel_futures=True)
 
-            # 再次清理队列，确保所有剩余日志都被显示
             while not log_queue.empty():
                 try:
                     msg, status = log_queue.get_nowait()
@@ -884,12 +965,12 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                 message = "精简链路重试成功，已继续完成本章生成"
                 log_callback(message, status="success")
                 run_logs.append(f"[{datetime.now().isoformat()}] {message}")
-        
+
         if log_callback:
             message = "章节生成完成，正在保存..."
             log_callback(message)
             run_logs.append(f"[{datetime.now().isoformat()}] {message}")
-        
+
         raw_result = str(result)
         body_without_summary, summary_block = _extract_summary_block(raw_result)
         final_content = _sanitize_final_content(body_without_summary, int(chapter_number))
@@ -924,55 +1005,53 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             if current_len < min_chars:
                 expanded_once = _expand_chapter_to_min_length(agents[3], int(chapter_number), final_content, min_chars, max_chars)
                 final_content = _sanitize_final_content(expanded_once, int(chapter_number))
-        
-        # 保存章节
+
         save_chapter(project_name, chapter_number, final_content)
         save_canon_entry(project_name, chapter_number, _build_canon_ledger(int(chapter_number), final_content))
         summary_max_chars = int(os.getenv("CHAPTER_SUMMARY_MAX_CHARS", "900"))
         summary_content = _normalize_summary(int(chapter_number), summary_block, max_chars=summary_max_chars)
-        
+
         if not summary_content:
             if log_callback:
                 log_callback("📝 正在使用 LLM 生成高质量章节摘要...", status="info")
-            # Use editor LLM (agents[3]) if available, otherwise writer (agents[2]) or first
             target_llm = agents[3].llm if len(agents) > 3 else agents[0].llm
             summary_content = _generate_summary_via_llm(final_content, target_llm, max_chars=summary_max_chars)
-            
-        # Fallback to regex if LLM fails or returns empty
+
         if not summary_content:
             summary_content = _build_chapter_summary(chapter_number, final_content, max_chars=summary_max_chars)
-            
+
         save_chapter_summary(project_name, chapter_number, summary_content, max_chars=summary_max_chars)
-        
+
         if log_callback:
             message = "第{}章保存成功！".format(chapter_number)
             log_callback(message, status="success")
             run_logs.append(f"[{datetime.now().isoformat()}] {message}")
-        
-        # 保存运行日志
+
         save_run_log(project_name, "\n".join(run_logs))
-        
+
         return result
     except Exception as e:
         error_message = "生成过程出错: {}".format(str(e))
         if log_callback:
             log_callback(error_message, status="error")
             run_logs.append(f"[{datetime.now().isoformat()}] ERROR: {error_message}")
-        # 保存错误日志
         save_run_log(project_name, "\n".join(run_logs))
         raise
 
 
 def generate_single_chapter(project_name, outline, chapter_number, log_callback=None):
-    """生成单个章节（generate_chapter的别名）"""
+    """生成单个章节（generate_chapter 的别名）"""
     return generate_chapter(project_name, outline, chapter_number, log_callback)
 
 
 def generate_multiple_chapters(project_name, outline, start_chapter, end_chapter, log_callback=None):
-    """生成多个章节"""
+    """
+    批量生成多个章节
+    循环调用 generate_chapter，保存完整运行日志
+    """
     results = []
     run_logs = []
-    
+
     for chapter_num in range(start_chapter, end_chapter + 1):
         try:
             chapter_logs = []
@@ -980,28 +1059,27 @@ def generate_multiple_chapters(project_name, outline, start_chapter, end_chapter
                 message = "=" * 60
                 log_callback(message)
                 chapter_logs.append(f"[{datetime.now().isoformat()}] {message}")
-                
+
                 message = "开始生成第{}章".format(chapter_num)
                 log_callback(message)
                 chapter_logs.append(f"[{datetime.now().isoformat()}] {message}")
-                
+
                 message = "=" * 60
                 log_callback(message)
                 chapter_logs.append(f"[{datetime.now().isoformat()}] {message}")
-            
+
             result = generate_chapter(project_name, outline, chapter_num, log_callback)
             results.append(result)
-            
+
             run_logs.extend(chapter_logs)
-            
+
         except Exception as e:
             error_message = "第{}章生成失败: {}".format(chapter_num, str(e))
             if log_callback:
                 log_callback(error_message, status="error")
                 run_logs.append(f"[{datetime.now().isoformat()}] ERROR: {error_message}")
             continue
-    
-    # 保存完整运行日志
+
     save_run_log(project_name, "\n".join(run_logs))
-    
+
     return results

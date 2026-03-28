@@ -33,13 +33,3 @@ logs/
 # 忽略系统文件
 Thumbs.db
 .DS_Store
-
-# 忽略许可证私钥和密钥生成器（公开仓库不应包含私钥）
-license_keys/
-keygen_gui.py
-license_cli.py
-AI_Novel_Writer_Keygen.spec
-src/license.py
-
-# 忽略 Inno Setup 输出目录
-Output/

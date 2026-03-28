@@ -122,7 +122,28 @@ AI_novel/
 
 ---
 
-## 6. 安全与致谢
+## 6. 更新日志
+
+### v2.4 (2025-03-29)
+- **UI 深度优化**：商业化、专业化界面升级
+  - 全新设计系统：统一的颜色、字体、间距、圆角、阴影变量
+  - 组件尺寸标准化：按钮、输入框、对话框等统一尺寸规范
+  - 下拉框背景修复：解决 QComboBox 弹出列表透明问题
+  - 弹窗布局优化：减少顶部留白，更紧凑专业
+  - 监控区域按钮优化：统一高度和样式
+  - 输入框清除按钮隐藏：消除所有 QLineEdit/QSpinBox/QComboBox 右侧小黑点
+  - 侧边栏图标更换：从 🤖 更换为 ✦✦ 更简洁优雅
+  - 监控头部区域精简：减少留白，按钮改为纯图标样式
+- **代码重构**：模块化拆分
+  - `gui/widgets.py`：基础组件（StreamRedirector, CustomTitleBar, WelcomeWidget 等）
+  - `gui/dialogs.py`：对话框模块（NewProjectDialog, ApiSettingsDialog, ModelParamsDialog, LicenseSettingsDialog）
+  - `gui/main_window.py`：主窗口逻辑（从 2600+ 行精简至 1600+ 行）
+  - `gui/styles/`：样式系统模块化（variables, base, components, layouts）
+  - `gui/views/`：视图层模块化（tab_create_view, tab_monitor_view, tab_reader_view 等）
+
+---
+
+## 7. 安全与致谢
 
 - **安全提示**：API Key 加密存储在 `.api_keys.enc` 和 `.encryption_key` 中，请勿提交到公共仓库。
 - **致谢**：CrewAI, PySide6, LiteLLM, DeepSeek, 阿里云通义千问, Moonshot AI。

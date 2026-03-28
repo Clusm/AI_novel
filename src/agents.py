@@ -1,3 +1,13 @@
+"""
+Agent 模块 - 创建多 Agent 协作的 AI 写作团队
+
+核心功能：
+1. 创建 4 个专业 Agent：大纲优化师、世界观守护者、主写手、审校专家
+2. 支持多模型：DeepSeek、通义千问、Kimi
+3. 参数裁剪：根据模型能力边界自动调整 temperature、top_p、max_tokens
+4. 路由策略：极速/平衡/质量优先，影响模型选择
+"""
+
 from crewai import Agent, LLM
 import os
 from src.api import (
@@ -9,12 +19,21 @@ from src.api import (
 
 
 def _safe_model_params(params, limits):
-    """按模型能力边界裁剪参数，避免不同供应商参数越界导致请求失败。"""
+    """
+    按模型能力边界裁剪参数
+    避免不同供应商参数越界导致请求失败
+
+    参数：
+    - params: 用户配置的参数 {temperature, top_p, max_tokens}
+    - limits: 模型能力边界 {temperature: {min, max}, top_p: {min, max}, max_tokens: {min, max}}
+
+    返回：裁剪后的安全参数
+    """
     raw = params or {}
     try:
-        temperature = float(raw.get("temperature", 0.7))
+        temperature = float(raw.get("temperature", 1.0))
     except (TypeError, ValueError):
-        temperature = 0.7
+        temperature = 1.0
     temperature = max(float(limits["temperature"]["min"]), min(float(limits["temperature"]["max"]), temperature))
 
     try:
@@ -46,7 +65,18 @@ def _safe_model_params(params, limits):
 
 
 def _build_role_llm_kwargs(role, model_name, preset, custom_params, default_params):
-    """根据模式与角色取值生成 LLM kwargs。"""
+    """
+    根据模式与角色生成 LLM 参数
+
+    参数：
+    - role: Agent 角色（outline/character/writer/finalizer）
+    - model_name: 模型名称
+    - preset: 参数模式（default/custom）
+    - custom_params: 自定义参数
+    - default_params: 默认参数
+
+    返回：LLM kwargs 字典
+    """
     limits = get_model_capability_limits(model_name)
     source = default_params if preset == "default" else custom_params
     selected = _safe_model_params(source, limits)
@@ -59,44 +89,47 @@ def _build_role_llm_kwargs(role, model_name, preset, custom_params, default_para
 
 def create_agents():
     """
-    创建6个专业AI Agent（面向中文网文），具体模型与分工：
+    创建 4 个专业 AI Agent（面向中文网文）
 
-    模型与 API 名称：
-    - DeepSeek：deepseek-chat（DeepSeek-V3.2，128K）— 大纲动态优化（1个）
-    - 通义千问：qwen-plus（128K；可改为 qwen-turbo 省成本 / qwen-max 最强）— 人物、爽点、主写、审查、润色（5个）
+    Agent 分工：
+    1. 大纲动态优化师（DeepSeek）：细化大纲、生成爽点清单和伏笔表
+    2. 人物与世界观守护者（通义千问）：维护人物卡、世界观一致性
+    3. 章节主写手（通义千问/Kimi）：撰写正文
+    4. 终极审校专家（Kimi/通义千问）：润色、检查一致性
+
+    模型选择受以下因素影响：
+    - 路由策略（speed/balanced/quality）
+    - 主写模型偏好（auto/qwen/kimi）
+    - Kimi Key 可用性
+
+    返回：Agent 列表
     """
     agents = []
     keys = load_api_keys()
     route_profile = keys.get("ROUTE_PROFILE", "speed")
-    # 参数模式：default 读取每角色默认值；custom 读取每角色自定义值
     model_preset = keys.get("MODEL_PRESET", "default")
     if model_preset not in {"default", "custom"}:
         model_preset = "default"
-    # 角色-模型映射会受路由策略、主写模型偏好、Kimi Key 可用性共同影响
     role_models = resolve_runtime_role_models(keys)
     role_custom_params = keys.get("MODEL_PARAMS_BY_ROLE", {})
     role_default_params = keys.get("MODEL_DEFAULTS_BY_ROLE", {})
     for role in MODEL_ROLES:
         role_custom_params.setdefault(role, {})
         role_default_params.setdefault(role, {})
-    
-    # 设置环境变量 - 确保CrewAI memory功能正常工作
+
     os.environ["OPENAI_API_KEY"] = keys.get("DEEPSEEK_API_KEY", "dummy")
     os.environ["DEEPSEEK_API_KEY"] = keys.get("DEEPSEEK_API_KEY", "")
     os.environ["DASHSCOPE_API_KEY"] = keys.get("DASHSCOPE_API_KEY", "")
     os.environ["MOONSHOT_API_KEY"] = keys.get("MOONSHOT_API_KEY", "")
-    
-    # 配置LLM（具体模型见下方，OpenAI 兼容接口）
-    # 增加超时控制和重试机制
-    
+
     deepseek_model = role_models["outline"]
     qwen_model = role_models["character"]
-    kimi_model = "openai/kimi-k2.5"
+    kimi_model = "openai/kimi-k2-5"
     writer_runtime_model = role_models["writer"]
     finalizer_runtime_model = role_models["finalizer"]
 
     def _llm_kwargs_for(role, model_name):
-        # 统一在这里做模式选择+边界裁剪，确保所有角色构造行为一致
+        """统一在这里做模式选择+边界裁剪，确保所有角色构造行为一致"""
         role_kwargs = _build_role_llm_kwargs(
             role,
             model_name,
@@ -104,6 +137,13 @@ def create_agents():
             role_custom_params.get(role, {}),
             role_default_params.get(role, {}),
         )
+        model_lower = (model_name or "").lower()
+        is_reasoner = any(p in model_lower for p in ["deepseek-reasoner", "openai/o1", "openai/o3"])
+        if is_reasoner:
+            payload = {}
+            if role_kwargs.get("max_tokens") is not None:
+                payload["max_tokens"] = role_kwargs["max_tokens"]
+            return payload
         payload = {
             "temperature": role_kwargs["temperature"],
             "top_p": role_kwargs["top_p"],
@@ -116,16 +156,16 @@ def create_agents():
         model=deepseek_model,
         api_key=keys.get("DEEPSEEK_API_KEY", ""),
         base_url="https://api.deepseek.com/v1",
-        timeout=600,  # R1思考时间较长，增加到10分钟
+        timeout=600,
         max_retries=2,
         **_llm_kwargs_for("outline", deepseek_model),
     )
-    
+
     qwen_llm = LLM(
         model=qwen_model,
         api_key=keys.get("DASHSCOPE_API_KEY", ""),
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        timeout=300,  # 5分钟超时
+        timeout=300,
         max_retries=2,
         **_llm_kwargs_for("character", qwen_model),
     )
@@ -180,8 +220,7 @@ def create_agents():
             max_retries=2,
             **_llm_kwargs_for("finalizer", qwen_model),
         )
-    
-    # 1. 大纲动态优化师 - 使用DeepSeek
+
     agent_outline = Agent(
         role="大纲动态优化师",
         goal="把用户提供的大纲细化成当前章节详细提纲、爽点清单、伏笔表",
@@ -189,12 +228,11 @@ def create_agents():
         llm=deepseek_llm,
         verbose=True,
         allow_delegation=False,
-        max_iter=3, # 降低迭代次数，防止R1无限推理
-        max_execution_time=600 # 强制10分钟超时
+        max_iter=3,
+        max_execution_time=600
     )
     agents.append(agent_outline)
-    
-    # 2. 人物与世界观守护者 - 使用通义千问
+
     agent_character = Agent(
         role="人物与世界观守护者",
         goal="维护完整人物卡、世界观一致性检查，防止后期崩人设",
@@ -202,14 +240,11 @@ def create_agents():
         llm=qwen_llm,
         verbose=True,
         allow_delegation=False,
-        max_iter=3, # 降低最大迭代次数，防止卡顿
-        max_execution_time=300 # 5分钟强制超时
+        max_iter=3,
+        max_execution_time=300
     )
     agents.append(agent_character)
-    
-    # [已移除] 3. 爽点强化设计师 - 职能合并至大纲优化师
-    
-    # 3. 章节主写手 (原Agent 4)
+
     agent_writer = Agent(
         role="章节主写手",
         goal="根据最新大纲 + 人物卡写出符合字数要求的正文",
@@ -217,22 +252,21 @@ def create_agents():
         llm=writer_llm,
         verbose=True,
         allow_delegation=False,
-        max_iter=5, # 限制思考轮数，重点在一次性输出长文
-        max_execution_time=900 # 延长到15分钟，适应长文生成
+        max_iter=5,
+        max_execution_time=900
     )
     agents.append(agent_writer)
-    
-    # 4. 终极审校专家 - 合并原“审查员”与“润色师”职责
-    agent_finalizer = Agent(
+
+    agent_editor = Agent(
         role="终极审校专家",
-        goal="一步完成情节逻辑审查与文字润色，输出最终定稿",
-        backstory="你是一位兼具毒辣眼光与顶级文笔的资深主编。你能在审查逻辑漏洞的同时直接修改文字，确保作品既严谨又精彩。",
+        goal="润色正文、检查一致性、确保符合网文节奏和爽点要求",
+        backstory="你是一位严谨的网文主编，擅长发现问题、润色文字、确保故事节奏紧凑、爽点到位。",
         llm=editor_llm,
         verbose=True,
         allow_delegation=False,
         max_iter=3,
-        max_execution_time=900 # 延长到15分钟
+        max_execution_time=600
     )
-    agents.append(agent_finalizer)
-    
+    agents.append(agent_editor)
+
     return agents
