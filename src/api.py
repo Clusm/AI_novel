@@ -324,6 +324,7 @@ def save_api_keys(
     model_params_by_role=None,
     model_defaults_by_role=None,
     model_params=None,
+    memory_enabled=False,
 ):
     """
     保存 API 与模型配置（加密存储）
@@ -339,6 +340,7 @@ def save_api_keys(
     - model_params_by_role: 按角色的自定义参数
     - model_defaults_by_role: 按角色的默认参数
     - model_params: 旧版单份参数（兼容迁移）
+    - memory_enabled: 是否启用 CrewAI 长期记忆
     """
     runtime_keys = {
         "ROUTE_PROFILE": route_profile,
@@ -362,7 +364,7 @@ def save_api_keys(
         "AUTH_CODE": auth_code,
         "ROUTE_PROFILE": route_profile,
         "WRITER_MODEL": writer_model,
-        "CREWAI_ENABLE_MEMORY": False,
+        "CREWAI_ENABLE_MEMORY": bool(memory_enabled),
         "MODEL_PRESET": preset,
         "MODEL_PARAMS_BY_ROLE": normalized_custom,
         "MODEL_DEFAULTS_BY_ROLE": normalized_defaults,
@@ -402,7 +404,7 @@ def load_api_keys():
                 "AUTH_CODE": "",
                 "ROUTE_PROFILE": "speed",
                 "WRITER_MODEL": "auto",
-                "CREWAI_ENABLE_MEMORY": False,
+                "CREWAI_ENABLE_MEMORY": False,  # 首次使用默认关闭
                 "MODEL_PRESET": DEFAULT_MODEL_PRESET,
                 "MODEL_PARAMS_BY_ROLE": defaults_by_role,
                 "MODEL_DEFAULTS_BY_ROLE": defaults_by_role,
@@ -437,7 +439,7 @@ def load_api_keys():
             "AUTH_CODE": keys.get("AUTH_CODE", ""),
             "ROUTE_PROFILE": keys.get("ROUTE_PROFILE", "speed"),
             "WRITER_MODEL": keys.get("WRITER_MODEL", "auto"),
-            "CREWAI_ENABLE_MEMORY": False,
+            "CREWAI_ENABLE_MEMORY": bool(keys.get("CREWAI_ENABLE_MEMORY", False)),
             "MODEL_PRESET": preset,
             "MODEL_PARAMS_BY_ROLE": role_params,
             "MODEL_DEFAULTS_BY_ROLE": defaults_by_role,
@@ -453,7 +455,7 @@ def load_api_keys():
             "AUTH_CODE": "",
             "ROUTE_PROFILE": "speed",
             "WRITER_MODEL": "auto",
-            "CREWAI_ENABLE_MEMORY": False,
+            "CREWAI_ENABLE_MEMORY": False,  # 异常时安全默认关闭
             "MODEL_PRESET": DEFAULT_MODEL_PRESET,
             "MODEL_PARAMS_BY_ROLE": defaults_by_role,
             "MODEL_DEFAULTS_BY_ROLE": defaults_by_role,

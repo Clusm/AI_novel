@@ -8,6 +8,16 @@ STORY_BIBLE_MAX_CHARS = 2600
 STORY_BIBLE_MAX_CHARS_TOMATO = 3200
 OUTLINE_EXCERPT_MAX_CHARS = 1200
 
+# Memory 启用时，缩减 story_bible 和 canon_context 的传入上限。
+# 省出的 token 空间留给 Memory 检索结果注入，避免总 prompt 超限。
+# 缩减幅度约 35%：让 Memory 提供跨章节远程记忆，本地上下文专注最近信息。
+STORY_BIBLE_MAX_CHARS_WITH_MEMORY = 1600
+STORY_BIBLE_MAX_CHARS_TOMATO_WITH_MEMORY = 2000
+CANON_MAX_CHARS_STANDARD = 1800
+CANON_MAX_CHARS_TOMATO = 2800
+CANON_MAX_CHARS_STANDARD_WITH_MEMORY = 1100
+CANON_MAX_CHARS_TOMATO_WITH_MEMORY = 1800
+
 
 def _clamp_with_suffix(text: str, max_chars: int, suffix: str) -> str:
     if max_chars <= 0:
@@ -165,12 +175,22 @@ def create_tasks(
     canon_context="",
     compact_mode=False,
     writing_style="standard",
+    memory_enabled: bool = False,
 ):
-    """构建章节生成任务链：提纲(可选) -> 守护者 -> 主写 -> 终审。"""
+    """构建章节生成任务链：提纲(可选) -> 守护者 -> 主写 -> 终审。
+
+    memory_enabled: 当 CrewAI Memory 已启用时，自动缩减 story_bible 和 canon_context
+    的传入字数上限（约35%），将省出的 token 空间留给 Memory 检索结果注入。
+    """
     tasks = []
 
     bible_for_desc = (story_bible or "").strip()
-    bible_limit = STORY_BIBLE_MAX_CHARS_TOMATO if writing_style == "tomato" else STORY_BIBLE_MAX_CHARS
+    if writing_style == "tomato":
+        bible_limit = STORY_BIBLE_MAX_CHARS_TOMATO_WITH_MEMORY if memory_enabled else STORY_BIBLE_MAX_CHARS_TOMATO
+        canon_limit = CANON_MAX_CHARS_TOMATO_WITH_MEMORY if memory_enabled else CANON_MAX_CHARS_TOMATO
+    else:
+        bible_limit = STORY_BIBLE_MAX_CHARS_WITH_MEMORY if memory_enabled else STORY_BIBLE_MAX_CHARS
+        canon_limit = CANON_MAX_CHARS_STANDARD_WITH_MEMORY if memory_enabled else CANON_MAX_CHARS_STANDARD
     if len(bible_for_desc) > bible_limit:
         bible_for_desc = bible_for_desc[:bible_limit] + "…（剧情圣经已截断）"
 
@@ -188,7 +208,6 @@ def create_tasks(
     if bible_for_desc:
         base_context += f"\n\n【剧情圣经（摘要）】\n{bible_for_desc}"
     if canon_context:
-        canon_limit = 2800 if writing_style == "tomato" else 1800
         base_context += f"\n\n【最近章节事实台账（强连续性输入）】\n{canon_context[:canon_limit]}"
     
     style_profile = _build_style_profile(writing_style)

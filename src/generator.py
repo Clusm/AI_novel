@@ -60,11 +60,16 @@ def get_embedder_config():
     """
     获取 CrewAI 记忆用的 embedder 配置
     使用通义千问 DashScope 的 OpenAI 兼容 embedding 接口
-    返回：embedder 配置字典，若无 API Key 则返回 None
+    返回：embedder 配置字典，若无 API Key 或环境不满足则返回 None
     """
     keys = load_api_keys()
     api_key = keys.get("DASHSCOPE_API_KEY", "").strip()
     if not api_key:
+        return None
+    # 检测 LanceDB 是否可用（CrewAI >= 0.75 的默认向量后端）
+    try:
+        import lancedb  # noqa: F401
+    except ImportError:
         return None
     return {
         "provider": "openai",
@@ -74,6 +79,31 @@ def get_embedder_config():
             "model": "text-embedding-v3",
         },
     }
+
+
+def clear_project_memory(project_name: str) -> bool:
+    """
+    清除指定项目的 CrewAI Memory 数据
+
+    删除项目目录下的 .crewai 向量存储目录。
+    用户可通过 GUI 按钮触发，在 Memory 数据异常或空间占用过大时使用。
+
+    参数：
+    - project_name: 项目名称
+
+    返回：True 表示清理成功或目录不存在，False 表示删除失败
+    """
+    import shutil
+    from src.project import get_projects_root
+    project_dir = os.path.join(get_projects_root(), project_name)
+    memory_dir = os.path.join(project_dir, ".crewai")
+    if not os.path.exists(memory_dir):
+        return True
+    try:
+        shutil.rmtree(memory_dir)
+        return True
+    except Exception:
+        return False
 
 
 def _tomato_compact_context(text: str, max_chars: int) -> str:
@@ -812,7 +842,7 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             log_callback(message)
             run_logs.append(f"[{datetime.now().isoformat()}] {message}")
 
-        agents = create_agents()
+        agents = create_agents(project_name=project_name, chapter_number=int(chapter_number))
         previous_context, previous_chapter_text = _build_previous_context(project_name, int(chapter_number))
         recent_canon_entries = load_recent_canon_entries(project_name, limit=3)
         recent_canon_context = "\n\n".join(recent_canon_entries).strip()
@@ -825,10 +855,17 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
         )
         writing_style = _resolve_writing_style(project_name)
 
-        embedder = None
-        default_memory_enabled = False
+        embedder = get_embedder_config()
+        keys = load_api_keys()
+        memory_config_enabled = keys.get("CREWAI_ENABLE_MEMORY", False)
+        default_memory_enabled = embedder is not None and memory_config_enabled
         if log_callback:
-            log_callback("ℹ️ CrewAI Memory 已禁用（使用剧情圣经+摘要+台账链路）", status="info")
+            if default_memory_enabled:
+                log_callback("ℹ️ CrewAI Memory 已启用（使用通义千问 Embedding）", status="info")
+            elif memory_config_enabled and not embedder:
+                log_callback("⚠️ Memory 已配置但缺少 DashScope API Key，无法启用", status="warning")
+            else:
+                log_callback("ℹ️ CrewAI Memory 已禁用（使用剧情圣经+摘要+台账链路）", status="info")
 
         def _run_pipeline(compact_mode: bool, memory_enabled: bool):
             """
@@ -853,6 +890,7 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                 canon_context=canon_payload,
                 compact_mode=compact_mode,
                 writing_style=writing_style,
+                memory_enabled=memory_enabled,
             )
             mode_label = "精简链路" if compact_mode else "完整链路"
             if log_callback:

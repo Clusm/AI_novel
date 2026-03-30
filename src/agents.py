@@ -16,6 +16,11 @@ from src.api import (
     resolve_runtime_role_models,
     get_model_capability_limits,
 )
+from src.tools import (
+    make_read_character_cards,
+    make_read_world_settings,
+    make_read_chapter_outline_detail,
+)
 
 
 def _safe_model_params(params, limits):
@@ -87,7 +92,7 @@ def _build_role_llm_kwargs(role, model_name, preset, custom_params, default_para
     }
 
 
-def create_agents():
+def create_agents(project_name: str = None, chapter_number: int = None):
     """
     创建 4 个专业 AI Agent（面向中文网文）
 
@@ -96,6 +101,10 @@ def create_agents():
     2. 人物与世界观守护者（通义千问）：维护人物卡、世界观一致性
     3. 章节主写手（通义千问/Kimi）：撰写正文
     4. 终极审校专家（Kimi/通义千问）：润色、检查一致性
+
+    参数：
+    - project_name: 当前项目名称（可选）。提供后为守护者和主写手配置文件读取 Tools
+    - chapter_number: 当前章节号（可选）。提供后主写手可按需读取本章大纲详情
 
     模型选择受以下因素影响：
     - 路由策略（speed/balanced/quality）
@@ -233,6 +242,18 @@ def create_agents():
     )
     agents.append(agent_outline)
 
+    # 按需为守护者和主写手构建文件读取 Tools
+    character_tools = []
+    writer_tools = []
+    if project_name:
+        character_tools = [
+            make_read_character_cards(project_name),
+            make_read_world_settings(project_name),
+        ]
+        writer_tools = [
+            make_read_chapter_outline_detail(project_name, chapter_number or 1),
+        ]
+
     agent_character = Agent(
         role="人物与世界观守护者",
         goal="维护完整人物卡、世界观一致性检查，防止后期崩人设",
@@ -240,6 +261,7 @@ def create_agents():
         llm=qwen_llm,
         verbose=True,
         allow_delegation=False,
+        tools=character_tools,
         max_iter=3,
         max_execution_time=300
     )
@@ -252,7 +274,8 @@ def create_agents():
         llm=writer_llm,
         verbose=True,
         allow_delegation=False,
-        max_iter=5,
+        tools=writer_tools,
+        max_iter=3,
         max_execution_time=900
     )
     agents.append(agent_writer)
@@ -264,7 +287,7 @@ def create_agents():
         llm=editor_llm,
         verbose=True,
         allow_delegation=False,
-        max_iter=3,
+        max_iter=2,
         max_execution_time=600
     )
     agents.append(agent_editor)

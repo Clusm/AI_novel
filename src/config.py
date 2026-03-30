@@ -186,6 +186,7 @@ class AppConfig:
             self.model_preset = keys.get("MODEL_PRESET", "default")
             self.model_params_by_role = keys.get("MODEL_PARAMS_BY_ROLE", {})
             self.model_defaults_by_role = keys.get("MODEL_DEFAULTS_BY_ROLE", {})
+            self.enable_memory = bool(keys.get("CREWAI_ENABLE_MEMORY", False))
             
         except Exception:
             pass
@@ -228,7 +229,7 @@ class AppConfig:
             "AUTH_CODE": self.auth_code,
             "ROUTE_PROFILE": self.route_profile,
             "WRITER_MODEL": self.writer_model,
-            "CREWAI_ENABLE_MEMORY": False,
+            "CREWAI_ENABLE_MEMORY": self.enable_memory,
             "MODEL_PRESET": self.model_preset,
             "MODEL_PARAMS_BY_ROLE": self.model_params_by_role,
             "MODEL_DEFAULTS_BY_ROLE": self.model_defaults_by_role,
@@ -292,7 +293,7 @@ class AppConfig:
             "AUTH_CODE": self.auth_code,
             "ROUTE_PROFILE": self.route_profile,
             "WRITER_MODEL": self.writer_model,
-            "CREWAI_ENABLE_MEMORY": False,
+            "CREWAI_ENABLE_MEMORY": self.enable_memory,
             "MODEL_PRESET": self.model_preset,
             "MODEL_PARAMS_BY_ROLE": self.model_params_by_role,
             "MODEL_DEFAULTS_BY_ROLE": self.model_defaults_by_role,

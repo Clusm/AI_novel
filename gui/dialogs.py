@@ -5,6 +5,7 @@ GUI 对话框模块
 
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFormLayout,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSlider,
     QVBoxLayout,
@@ -119,6 +121,7 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
     - 配置 DeepSeek、通义千问、Kimi 三个 API Key
     - 选择路由策略（极速/平衡/质量优先）
     - 选择主写模型偏好
+    - 启用/禁用 CrewAI 长期记忆功能
     """
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -127,6 +130,7 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         self.setMinimumWidth(Sizes.DIALOG_WIDTH_MD)
 
         keys = load_api_keys()
+        self._current_project = None  # 可由调用方设置，用于清理 Memory
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -193,12 +197,23 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         if writer_val in ["auto", "qwen", "kimi"]:
             self.writer_model.setCurrentText(writer_val)
 
+        # Memory 开关
+        self.memory_check = QCheckBox("启用长期记忆（跨章节向量检索，需要通义千问 Key）")
+        self.memory_check.setChecked(bool(keys.get("CREWAI_ENABLE_MEMORY", False)))
+
         form.addRow("DeepSeek Key", self.deepseek)
         form.addRow("通义千问 Key", self.qwen)
         form.addRow("Kimi Key", self.kimi)
         form.addRow("路由策略", self.route_profile)
         form.addRow("主写模型", self.writer_model)
+        form.addRow("长期记忆", self.memory_check)
         content_layout.addLayout(form)
+
+        # 清理 Memory 按钮（单独一行）
+        self.clear_memory_btn = QPushButton("清理当前项目的 Memory 数据")
+        self.clear_memory_btn.setMinimumHeight(Sizes.BUTTON_HEIGHT_LG)
+        self.clear_memory_btn.clicked.connect(self._on_clear_memory)
+        content_layout.addWidget(self.clear_memory_btn)
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
@@ -228,6 +243,43 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
 
         apply_drop_shadow(self.container, blur_radius=32, y_offset=8, alpha=25)
 
+    def set_current_project(self, project_name: str):
+        """由主窗口调用，传入当前打开的项目名称，供清理 Memory 时使用"""
+        self._current_project = project_name
+
+    def _on_clear_memory(self):
+        """清理当前项目的 CrewAI Memory 数据"""
+        if not self._current_project:
+            QMessageBox.information(self, "提示", "请先打开一个项目，再执行 Memory 清理。")
+            return
+        reply = QMessageBox.question(
+            self,
+            "确认清理",
+            f"确定要清除项目「{self._current_project}」的所有 Memory 数据吗？\n此操作不可撤销。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            from src.generator import clear_project_memory
+            success = clear_project_memory(self._current_project)
+            if success:
+                self.result_label.setText("Memory 数据已清理")
+                self.result_label.setProperty("tone", "success")
+            else:
+                self.result_label.setText("清理失败，请手动删除项目目录下的 .crewai 文件夹")
+                self.result_label.setProperty("tone", "danger")
+            self.result_label.style().unpolish(self.result_label)
+            self.result_label.style().polish(self.result_label)
+            self.result_label.setVisible(True)
+        except Exception as exc:
+            self.result_label.setText(str(exc))
+            self.result_label.setProperty("tone", "danger")
+            self.result_label.style().unpolish(self.result_label)
+            self.result_label.style().polish(self.result_label)
+            self.result_label.setVisible(True)
+
     def save_settings(self):
         """保存 API 配置到加密文件"""
         try:
@@ -247,6 +299,7 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
                 keys.get("MODEL_PRESET", "default"),
                 keys.get("MODEL_PARAMS_BY_ROLE", {}),
                 keys.get("MODEL_DEFAULTS_BY_ROLE", {}),
+                memory_enabled=self.memory_check.isChecked(),
             )
             self.result_label.setText("配置已保存")
             self.result_label.setProperty("tone", "success")

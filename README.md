@@ -77,7 +77,7 @@
 ## 4. 使用教程
 
 ### 4.1 快速开始
-1. **安装程序**：运行 `Output/AI_Novel_Writer_Setup_v2.4.exe` 进行安装，或直接运行 `dist/AI_Novel_Writer/AI_Novel_Writer.exe`。
+1. **安装程序**：运行 `Output/AI_Novel_Writer_Setup_v3.0.exe` 进行安装，或直接运行 `dist/AI_Novel_Writer/AI_Novel_Writer.exe`。
 2. **配置 API**：在侧边栏「系统设置」→「API & 授权」中填入 Key 并验证。
    - **DeepSeek**：用于大纲优化。
    - **通义千问 (DashScope)**：用于主写、一致性维护与记忆。
@@ -123,6 +123,16 @@ AI_novel/
 ---
 
 ## 6. 更新日志
+
+### v3.0 (2026-03-30)
+- **CrewAI Memory 正式启用**：移除 `CREWAI_ENABLE_MEMORY` 硬编码限制，用户可在 API 设置中手动开启跨章节向量记忆（需通义千问 DashScope Key + lancedb）。
+- **上下文裁剪智能化**：Memory 启用时自动缩减 `story_bible` 和 `canon_context` 的 Token 传入量（约 35%），将省出的空间留给 Memory 检索结果注入，避免总 prompt 超限。
+- **Agent Tools 支持**：
+  - 人物守护者新增 `read_character_cards` / `read_world_settings` 两个文件读取工具，可按需拉取最新人物卡与世界观设定，而非全量预注入。
+  - 章节主写手新增 `read_chapter_outline_detail` 工具，可按需读取当前章节大纲详情。
+  - 所有工具在文件缺失时自动降级为 Task description 中的预注入内容，不阻断主流程。
+- **Memory 管理 GUI**：API 设置对话框新增"长期记忆"开关及"清理当前项目 Memory 数据"按钮。
+- **版本升级**：程序版本从 v2.4 升至 v3.0。
 
 ### v2.4 (2025-03-29)
 - **UI 深度优化**：商业化、专业化界面升级

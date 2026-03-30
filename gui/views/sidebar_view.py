@@ -57,7 +57,7 @@ class SidebarView(QFrame):
         title.setStyleSheet("font-size: 16px; font-weight: 800; color: #0f172a; padding: 0;")
         title_layout.addWidget(title)
         
-        self.version_label = QLabel("v2.4")
+        self.version_label = QLabel("v3.0")
         self.version_label.setObjectName("MutedText")
         self.version_label.setStyleSheet("padding: 0;")
         title_layout.addWidget(self.version_label)
