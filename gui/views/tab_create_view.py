@@ -9,71 +9,110 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QRadioButton,
     QSpinBox,
+    QStackedWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 from gui.widgets import apply_drop_shadow
+from gui.styles import Colors, Typography, Radius
 
 
 class TabCreateView(QWidget):
     """
     创作中心标签页 - 包含大纲编辑和生成控制
     """
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._build_ui()
-    
+
     def _build_ui(self):
         tab_layout = QHBoxLayout(self)
         tab_layout.setContentsMargins(4, 14, 4, 4)
         tab_layout.setSpacing(20)
-        
+
         tab_layout.addWidget(self._build_outline_panel(), 4)
         tab_layout.addWidget(self._build_control_panel(), 2)
-        
+
         self.progress.setVisible(False)
-    
+
     def _build_outline_panel(self):
         left = QFrame()
         left.setObjectName("Card")
         apply_drop_shadow(left, blur_radius=20, y_offset=4, alpha=15)
-        
+
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(20, 20, 20, 10)
         left_layout.setSpacing(10)
-        
+
         header_row = QHBoxLayout()
         header_row.addWidget(QLabel("📝 故事大纲"))
-        
+
         self.chapter_detect_label = QLabel("")
         self.chapter_detect_label.setObjectName("MutedText")
         self.chapter_detect_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         header_row.addWidget(self.chapter_detect_label, 1)
-        
+
         left_layout.addLayout(header_row)
-        
-        self.outline_edit = QTextEdit()
-        self.outline_edit.setAcceptRichText(False)
+
+        self.outline_stack = QStackedWidget()
+
+        self.outline_edit = QPlainTextEdit()
         self.outline_edit.setObjectName("MarkdownEditor")
         self.outline_edit.setPlaceholderText("# 故事标题\n\n## 第一章：起航\n在这里写下你的故事大纲...")
-        left_layout.addWidget(self.outline_edit, 1)
-        
+
+        self.outline_preview = QTextEdit()
+        self.outline_preview.setObjectName("ReaderContent")
+        self.outline_preview.setReadOnly(True)
+
+        self.outline_stack.addWidget(self.outline_edit)
+        self.outline_stack.addWidget(self.outline_preview)
+
+        mode_tabs = QHBoxLayout()
+        mode_tabs.setSpacing(4)
+
+        self.btn_write_mode = QPushButton("编辑")
+        self.btn_write_mode.setCheckable(True)
+        self.btn_write_mode.setChecked(True)
+        self.btn_write_mode.setObjectName("SegmentedButton")
+        self.btn_write_mode.setCursor(Qt.PointingHandCursor)
+        self.btn_write_mode.setFixedSize(60, 28)
+
+        self.btn_preview_mode = QPushButton("预览")
+        self.btn_preview_mode.setCheckable(True)
+        self.btn_preview_mode.setObjectName("SegmentedButton")
+        self.btn_preview_mode.setCursor(Qt.PointingHandCursor)
+        self.btn_preview_mode.setFixedSize(60, 28)
+
+        # 使用 QButtonGroup 实现互斥
+        self.outline_mode_group = QButtonGroup(self)
+        self.outline_mode_group.setExclusive(True)
+        self.outline_mode_group.addButton(self.btn_write_mode, 0)
+        self.outline_mode_group.addButton(self.btn_preview_mode, 1)
+
+        mode_tabs.addWidget(self.btn_write_mode)
+        mode_tabs.addWidget(self.btn_preview_mode)
+        mode_tabs.addStretch(1)
+
+        left_layout.addLayout(mode_tabs)
+        left_layout.addWidget(self.outline_stack, 1)
+
         tools = QHBoxLayout()
         tools.setContentsMargins(0, 0, 0, 0)
         tools.addStretch(1)
-        
+
         self.btn_save_outline = QPushButton("保存大纲")
         self.btn_save_outline.setObjectName("PrimaryButton")
         self.btn_save_outline.setFixedSize(100, 36)
         tools.addWidget(self.btn_save_outline)
         left_layout.addLayout(tools)
-        
+
         return left
     
     def _build_control_panel(self):

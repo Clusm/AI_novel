@@ -79,6 +79,70 @@ QPushButton#IconButton:hover {{
     color: {Colors.TEXT_PRIMARY};
 }}
 
+QPushButton#IconButtonDanger {{
+    background-color: transparent;
+    border: none;
+    border-radius: {Radius.SM};
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    font-size: 14px;
+    color: {Colors.TEXT_SECONDARY};
+}}
+
+QPushButton#IconButtonDanger:hover {{
+    background-color: {Colors.ERROR_50};
+    color: {Colors.ERROR_500};
+}}
+
+QPushButton#IconButtonDanger:pressed {{
+    background-color: {Colors.ERROR_100};
+}}
+
+QPushButton#SegmentedButton {{
+    background: transparent;
+    border: 1px solid transparent;
+    color: {Colors.TEXT_SECONDARY};
+    font-size: 11px;
+    font-weight: {Typography.WEIGHT_MEDIUM};
+    padding: 3px 10px;
+    min-height: 22px;
+    border-radius: {Radius.SM};
+}}
+
+QPushButton#SegmentedButton:checked {{
+    background: {Colors.WHITE};
+    border-color: {Colors.BORDER};
+    color: {Colors.PRIMARY_500};
+    box-shadow: {Shadows.SM};
+}}
+
+QPushButton#SegmentedButton:hover:!checked {{
+    background: rgba(255, 255, 255, 0.5);
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+QPushButton#SegmentedButton:checked:hover {{
+    background: {Colors.GRAY_50};
+    border-color: {Colors.GRAY_300};
+}}
+
+QPushButton#SecondaryButton {{
+    background-color: {Colors.SURFACE};
+    border: 1px solid {Colors.BORDER};
+    color: {Colors.TEXT_SECONDARY};
+}}
+
+QPushButton#SecondaryButton:hover {{
+    background-color: {Colors.GRAY_50};
+    border-color: {Colors.GRAY_300};
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+QPushButton#SecondaryButton:pressed {{
+    background-color: {Colors.GRAY_100};
+}}
+
 QPushButton#TitleBarButton {{
     background-color: transparent;
     border: none;
@@ -192,6 +256,15 @@ QTextEdit#MarkdownEditor {{
     background-color: {Colors.SURFACE};
 }}
 
+QPlainTextEdit#MarkdownEditor {{
+    border: none;
+    background-color: {Colors.SURFACE};
+    padding: 8px;
+    font-size: {Typography.BODY['size']};
+    color: {Colors.TEXT_PRIMARY};
+    selection-background-color: {Colors.PRIMARY_100};
+}}
+
 QTextEdit#ReaderContent {{
     border: none;
     background-color: {Colors.SURFACE};
@@ -235,16 +308,31 @@ QComboBox:disabled {{
 
 QComboBox::drop-down {{
     border: none;
-    width: 0px;
-    padding: 0px;
+    width: 20px;
+    padding-right: 4px;
+    background: transparent;
 }}
 
 QComboBox::down-arrow {{
-    width: 0px;
-    height: 0px;
     image: none;
-    border: none;
-    background: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {Colors.TEXT_SECONDARY};
+    width: 0;
+    height: 0;
+}}
+
+QComboBox::down-arrow:on {{
+    border-top: none;
+    border-bottom: 6px solid {Colors.TEXT_SECONDARY};
+}}
+
+QComboBox:hover::down-arrow {{
+    border-top-color: {Colors.TEXT_PRIMARY};
+}}
+
+QComboBox:hover::down-arrow:on {{
+    border-bottom-color: {Colors.TEXT_PRIMARY};
 }}
 
 QComboBox QAbstractItemView {{

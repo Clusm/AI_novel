@@ -195,17 +195,6 @@ class WelcomeWidget(QWidget):
             card = QFrame()
             card.setObjectName("WelcomeStepCard")
             card.setFixedSize(Sizes.CARD_WIDTH_MD, 130)
-            card.setStyleSheet(f"""
-                QFrame#WelcomeStepCard {{
-                    background-color: {Colors.SURFACE};
-                    border: 1px solid {Colors.BORDER};
-                    border-radius: {Radius.LG};
-                }}
-                QFrame#WelcomeStepCard:hover {{
-                    border-color: {Colors.PRIMARY_300};
-                    background-color: {Colors.PRIMARY_50};
-                }}
-            """)
 
             shadow = QGraphicsDropShadowEffect()
             shadow.setBlurRadius(16)

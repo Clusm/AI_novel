@@ -44,7 +44,7 @@ class TabMonitorView(QWidget):
     
     def _build_header(self):
         header = QFrame()
-        header.setStyleSheet("border-bottom: 1px solid #e2e8f0; background: #f8fafc; border-top-left-radius: 16px; border-top-right-radius: 16px;")
+        header.setObjectName("CardHeader")
         h_layout = QHBoxLayout(header)
         h_layout.setContentsMargins(16, 8, 16, 8)
         h_layout.setSpacing(8)
@@ -54,33 +54,13 @@ class TabMonitorView(QWidget):
         self.btn_mode_thought.setCheckable(True)
         self.btn_mode_terminal.setCheckable(True)
         self.btn_mode_thought.setChecked(True)
+        self.btn_mode_thought.setObjectName("SegmentedButton")
+        self.btn_mode_terminal.setObjectName("SegmentedButton")
         self.btn_mode_thought.setCursor(Qt.PointingHandCursor)
         self.btn_mode_terminal.setCursor(Qt.PointingHandCursor)
         
-        toggle_style = """
-            QPushButton {
-                background: transparent;
-                border: none;
-                color: #64748b;
-                font-size: 12px;
-                font-weight: 600;
-                padding: 6px 14px;
-                border-radius: 6px;
-            }
-            QPushButton:checked {
-                background: #ffffff;
-                color: #3b82f6;
-                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-            }
-            QPushButton:hover:!checked {
-                background: rgba(255, 255, 255, 0.5);
-                color: #475569;
-            }
-        """
-        self.btn_mode_thought.setStyleSheet(toggle_style)
-        self.btn_mode_terminal.setStyleSheet(toggle_style)
-        
         self.monitor_mode_group = QButtonGroup(self)
+        self.monitor_mode_group.setExclusive(True)
         self.monitor_mode_group.addButton(self.btn_mode_thought, 0)
         self.monitor_mode_group.addButton(self.btn_mode_terminal, 1)
         
@@ -89,46 +69,16 @@ class TabMonitorView(QWidget):
         h_layout.addStretch(1)
         
         self.btn_refresh_logs = QPushButton("🔄")
+        self.btn_refresh_logs.setObjectName("IconButton")
         self.btn_refresh_logs.setFixedSize(32, 28)
         self.btn_refresh_logs.setCursor(Qt.PointingHandCursor)
         self.btn_refresh_logs.setToolTip("刷新")
-        self.btn_refresh_logs.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                border-radius: 4px;
-                color: #64748b;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background: #e2e8f0;
-                color: #475569;
-            }
-            QPushButton:pressed {
-                background: #cbd5e1;
-            }
-        """)
-        
+
         self.btn_clear_logs = QPushButton("🗑️")
+        self.btn_clear_logs.setObjectName("IconButtonDanger")
         self.btn_clear_logs.setFixedSize(32, 28)
         self.btn_clear_logs.setCursor(Qt.PointingHandCursor)
         self.btn_clear_logs.setToolTip("清空")
-        self.btn_clear_logs.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                border-radius: 4px;
-                color: #64748b;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background: #fee2e2;
-                color: #dc2626;
-            }
-            QPushButton:pressed {
-                background: #fecaca;
-            }
-        """)
         
         h_layout.addWidget(self.btn_refresh_logs)
         h_layout.addWidget(self.btn_clear_logs)

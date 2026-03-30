@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from gui.widgets import apply_drop_shadow
+from gui.styles import Colors, Typography
 
 
 class TabReaderView(QWidget):
@@ -74,36 +75,20 @@ class TabReaderView(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         
         header = QFrame()
-        header.setStyleSheet("border-bottom: 1px solid #e2e8f0; background: #f8fafc; border-top-left-radius: 16px; border-top-right-radius: 16px;")
+        header.setObjectName("CardHeader")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(24, 16, 24, 16)
-        
+
         self.chapter_title = QLabel("暂无章节")
-        self.chapter_title.setStyleSheet("font-size: 18px; font-weight: 700; color: #0f172a;")
-        
+        self.chapter_title.setStyleSheet(f"font-size: 18px; font-weight: {Typography.WEIGHT_BOLD}; color: {Colors.TEXT_PRIMARY};")
+
         self.chapter_words = QLabel("0 字")
-        self.chapter_words.setStyleSheet("color: #64748b; font-weight: 500;")
-        
+        self.chapter_words.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-weight: {Typography.WEIGHT_MEDIUM};")
+
         self.btn_copy_chapter = QPushButton("📋 复制")
+        self.btn_copy_chapter.setObjectName("SecondaryButton")
         self.btn_copy_chapter.setFixedSize(60, 28)
         self.btn_copy_chapter.setCursor(Qt.PointingHandCursor)
-        self.btn_copy_chapter.setStyleSheet("""
-            QPushButton {
-                background-color: white;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                color: #475569;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #f1f5f9;
-                color: #334155;
-                border-color: #cbd5e1;
-            }
-            QPushButton:pressed {
-                background-color: #e2e8f0;
-            }
-        """)
         
         header_layout.addWidget(self.chapter_title, 1)
         header_layout.addWidget(self.chapter_words)

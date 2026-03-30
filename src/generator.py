@@ -60,17 +60,17 @@ def get_embedder_config():
     """
     获取 CrewAI 记忆用的 embedder 配置
     使用通义千问 DashScope 的 OpenAI 兼容 embedding 接口
-    返回：embedder 配置字典，若无 API Key 或环境不满足则返回 None
+    返回：(embedder 配置字典 or None, 失败原因字符串 or None)
     """
     keys = load_api_keys()
     api_key = keys.get("DASHSCOPE_API_KEY", "").strip()
     if not api_key:
-        return None
+        return None, "no_key"
     # 检测 LanceDB 是否可用（CrewAI >= 0.75 的默认向量后端）
     try:
         import lancedb  # noqa: F401
     except ImportError:
-        return None
+        return None, "no_lancedb"
     return {
         "provider": "openai",
         "config": {
@@ -78,7 +78,7 @@ def get_embedder_config():
             "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "model": "text-embedding-v3",
         },
-    }
+    }, None
 
 
 def clear_project_memory(project_name: str) -> bool:
@@ -855,7 +855,7 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
         )
         writing_style = _resolve_writing_style(project_name)
 
-        embedder = get_embedder_config()
+        embedder, embedder_fail_reason = get_embedder_config()
         keys = load_api_keys()
         memory_config_enabled = keys.get("CREWAI_ENABLE_MEMORY", False)
         default_memory_enabled = embedder is not None and memory_config_enabled
@@ -863,7 +863,10 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             if default_memory_enabled:
                 log_callback("ℹ️ CrewAI Memory 已启用（使用通义千问 Embedding）", status="info")
             elif memory_config_enabled and not embedder:
-                log_callback("⚠️ Memory 已配置但缺少 DashScope API Key，无法启用", status="warning")
+                if embedder_fail_reason == "no_lancedb":
+                    log_callback("⚠️ Memory 已配置但 lancedb 未安装，请运行 pip install lancedb 后重启", status="warning")
+                else:
+                    log_callback("⚠️ Memory 已配置但缺少通义千问(DashScope) API Key，无法启用", status="warning")
             else:
                 log_callback("ℹ️ CrewAI Memory 已禁用（使用剧情圣经+摘要+台账链路）", status="info")
 

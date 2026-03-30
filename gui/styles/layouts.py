@@ -88,4 +88,16 @@ QFrame#ColorBar {{
 QWidget#WelcomeWidget {{
     background-color: {Colors.BACKGROUND};
 }}
+
+QFrame#CardHeader {{
+    background-color: {Colors.GRAY_50};
+    border-bottom: 1px solid {Colors.BORDER};
+    border-top-left-radius: {Radius.LG};
+    border-top-right-radius: {Radius.LG};
+}}
+
+QFrame#Card {{
+    background-color: {Colors.SURFACE};
+    border-radius: {Radius.LG};
+}}
 """

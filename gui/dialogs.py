@@ -1,6 +1,6 @@
 """
 GUI 对话框模块
-包含：新建项目对话框、API设置对话框、模型参数对话框、授权管理对话框
+包含：新建项目对话框、API设置对话框、模型参数对话框、授权管理对话框、自定义消息框
 """
 
 from PySide6.QtCore import Qt, QThread
@@ -10,16 +10,16 @@ from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QSlider,
     QVBoxLayout,
     QWidget,
 )
-from gui.styles import Colors, Typography, Sizes
+from gui.styles import Colors, Typography, Sizes, Radius
 from gui.widgets import FramelessWindowMixin, apply_drop_shadow
 from src.api import (
     MODEL_ROLE_LABELS,
@@ -29,6 +29,172 @@ from src.api import (
     resolve_runtime_role_models,
     get_model_capability_limits,
 )
+
+
+class CustomMessageBox(QDialog, FramelessWindowMixin):
+    """
+    自定义消息框 - 替代原生 QMessageBox，与无边框设计风格统一
+    支持 information、question、warning 三种类型
+    """
+    
+    ICON_MAP = {
+        "info": "ℹ️",
+        "success": "✅",
+        "warning": "⚠️",
+        "danger": "⛔",
+        "question": "❓",
+    }
+    
+    COLOR_MAP = {
+        "info": Colors.PRIMARY_500,
+        "success": Colors.SUCCESS_500,
+        "warning": Colors.WARNING_500,
+        "danger": Colors.ERROR_500,
+        "question": Colors.PRIMARY_500,
+    }
+    
+    def __init__(self, parent=None, title="", message="", msg_type="info", callback=None):
+        super().__init__(parent)
+        self._callback = callback
+        self._result = None
+        self._msg_type = msg_type
+        self.init_frameless("", translucent=True)
+        self.setModal(True)
+        self.setMinimumWidth(360)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(0)
+        
+        self.container = QFrame()
+        self.container.setObjectName("DialogContainer")
+        layout.addWidget(self.container)
+        
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(self.title_bar)
+        
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(24, 20, 24, 24)
+        content_layout.setSpacing(16)
+        
+        icon_label = QLabel(self.ICON_MAP.get(msg_type, "ℹ️"))
+        icon_label.setStyleSheet(f"font-size: 48px; background: transparent;")
+        icon_label.setAlignment(Qt.AlignCenter)
+        content_layout.addWidget(icon_label)
+        
+        if title:
+            title_label = QLabel(title)
+            title_label.setStyleSheet(f"""
+                font-size: {Typography.H3['size']};
+                font-weight: {Typography.WEIGHT_BOLD};
+                color: {Colors.TEXT_PRIMARY};
+                background: transparent;
+            """)
+            title_label.setAlignment(Qt.AlignCenter)
+            content_layout.addWidget(title_label)
+        
+        msg_label = QLabel(message)
+        msg_label.setStyleSheet(f"""
+            font-size: {Typography.BODY['size']};
+            color: {Colors.TEXT_SECONDARY};
+            background: transparent;
+        """)
+        msg_label.setWordWrap(True)
+        msg_label.setAlignment(Qt.AlignCenter)
+        content_layout.addWidget(msg_label)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(12)
+        
+        if msg_type == "question":
+            self._yes_btn = QPushButton("确定")
+            self._yes_btn.setObjectName("PrimaryButton")
+            self._yes_btn.setMinimumHeight(Sizes.BUTTON_HEIGHT_LG)
+            self._yes_btn.setMinimumWidth(80)
+            self._yes_btn.clicked.connect(self._on_yes)
+            
+            self._no_btn = QPushButton("取消")
+            self._no_btn.setMinimumHeight(Sizes.BUTTON_HEIGHT_LG)
+            self._no_btn.setMinimumWidth(80)
+            self._no_btn.clicked.connect(self._on_no)
+            
+            btn_layout.addStretch(1)
+            btn_layout.addWidget(self._yes_btn)
+            btn_layout.addWidget(self._no_btn)
+            btn_layout.addStretch(1)
+        else:
+            self._ok_btn = QPushButton("确定")
+            self._ok_btn.setObjectName("PrimaryButton")
+            self._ok_btn.setMinimumHeight(Sizes.BUTTON_HEIGHT_LG)
+            self._ok_btn.setMinimumWidth(100)
+            self._ok_btn.clicked.connect(self.accept)
+            
+            btn_layout.addStretch(1)
+            btn_layout.addWidget(self._ok_btn)
+            btn_layout.addStretch(1)
+        
+        content_layout.addLayout(btn_layout)
+        container_layout.addWidget(content)
+        
+        apply_drop_shadow(self.container, blur_radius=32, y_offset=8, alpha=25)
+    
+    def _on_yes(self):
+        self._result = True
+        if self._callback:
+            self._callback(True)
+        self.accept()
+    
+    def _on_no(self):
+        self._result = False
+        if self._callback:
+            self._callback(False)
+        self.reject()
+
+    def closeEvent(self, event):
+        """处理窗口关闭事件"""
+        if self._msg_type == "question":
+            self._result = False  # 关闭视为取消
+        event.accept()
+
+    @staticmethod
+    def information(parent, title, message):
+        """显示信息提示框"""
+        dlg = CustomMessageBox(parent, title, message, "info")
+        dlg.exec()
+        return True
+    
+    @staticmethod
+    def success(parent, title, message):
+        """显示成功提示框"""
+        dlg = CustomMessageBox(parent, title, message, "success")
+        dlg.exec()
+        return True
+    
+    @staticmethod
+    def warning(parent, title, message):
+        """显示警告提示框"""
+        dlg = CustomMessageBox(parent, title, message, "warning")
+        dlg.exec()
+        return True
+    
+    @staticmethod
+    def critical(parent, title, message):
+        """显示错误提示框"""
+        dlg = CustomMessageBox(parent, title, message, "danger")
+        dlg.exec()
+        return True
+    
+    @staticmethod
+    def question(parent, title, message, callback=None):
+        """显示确认对话框，返回用户是否点击确定"""
+        dlg = CustomMessageBox(parent, title, message, "question", callback)
+        result = dlg.exec()
+        if callback is None:
+            return dlg._result if dlg._result is not None else (result == QDialog.Accepted)
+        return dlg._result if dlg._result is not None else False
 
 
 class NewProjectDialog(QDialog, FramelessWindowMixin):
@@ -197,23 +363,51 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         if writer_val in ["auto", "qwen", "kimi"]:
             self.writer_model.setCurrentText(writer_val)
 
-        # Memory 开关
-        self.memory_check = QCheckBox("启用长期记忆（跨章节向量检索，需要通义千问 Key）")
-        self.memory_check.setChecked(bool(keys.get("CREWAI_ENABLE_MEMORY", False)))
-
         form.addRow("DeepSeek Key", self.deepseek)
         form.addRow("通义千问 Key", self.qwen)
         form.addRow("Kimi Key", self.kimi)
         form.addRow("路由策略", self.route_profile)
         form.addRow("主写模型", self.writer_model)
-        form.addRow("长期记忆", self.memory_check)
         content_layout.addLayout(form)
 
-        # 清理 Memory 按钮（单独一行）
+        memory_group = QGroupBox("长期记忆管理")
+        memory_group.setStyleSheet(f"""
+            QGroupBox {{
+                font-size: {Typography.BODY['size']};
+                font-weight: {Typography.WEIGHT_MEDIUM};
+                color: {Colors.TEXT_SECONDARY};
+                border: 1px solid {Colors.BORDER};
+                border-radius: {Radius.MD};
+                margin-top: 12px;
+                margin-bottom: 8px;
+                padding-top: 8px;
+                padding-bottom: 12px;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 6px;
+                background: {Colors.WHITE};
+            }}
+        """)
+        memory_layout = QVBoxLayout(memory_group)
+        memory_layout.setSpacing(8)
+
+        self.memory_check = QCheckBox("启用长期记忆（跨章节向量检索，需要通义千问 Key + lancedb）")
+        self.memory_check.setChecked(bool(keys.get("CREWAI_ENABLE_MEMORY", False)))
+        memory_layout.addWidget(self.memory_check)
+
+        memory_hint = QLabel("依赖：pip install lancedb  |  向量记忆清理后不可恢复")
+        memory_hint.setStyleSheet(f"color: {Colors.TEXT_TERTIARY}; font-size: {Typography.CAPTION['size']};")
+        memory_layout.addWidget(memory_hint)
+
         self.clear_memory_btn = QPushButton("清理当前项目的 Memory 数据")
+        self.clear_memory_btn.setObjectName("DangerButton")
         self.clear_memory_btn.setMinimumHeight(Sizes.BUTTON_HEIGHT_LG)
         self.clear_memory_btn.clicked.connect(self._on_clear_memory)
-        content_layout.addWidget(self.clear_memory_btn)
+        memory_layout.addWidget(self.clear_memory_btn)
+
+        content_layout.addWidget(memory_group)
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
@@ -250,16 +444,14 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
     def _on_clear_memory(self):
         """清理当前项目的 CrewAI Memory 数据"""
         if not self._current_project:
-            QMessageBox.information(self, "提示", "请先打开一个项目，再执行 Memory 清理。")
+            CustomMessageBox.information(self, "提示", "请先打开一个项目，再执行 Memory 清理。")
             return
-        reply = QMessageBox.question(
+        reply = CustomMessageBox.question(
             self,
             "确认清理",
             f"确定要清除项目「{self._current_project}」的所有 Memory 数据吗？\n此操作不可撤销。",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
         )
-        if reply != QMessageBox.Yes:
+        if not reply:
             return
         try:
             from src.generator import clear_project_memory

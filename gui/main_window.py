@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QMainWindow,
-    QMessageBox,
     QSizeGrip,
     QSplitter,
     QVBoxLayout,
@@ -31,6 +30,7 @@ from gui.dialogs import (
     ApiSettingsDialog,
     ModelParamsDialog,
     LicenseSettingsDialog,
+    CustomMessageBox,
 )
 from gui.views import (
     SidebarView,
@@ -237,6 +237,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.tab_create.btn_save_outline.clicked.connect(self.save_outline_clicked)
         self.tab_create.btn_generate.clicked.connect(self.start_generation)
         self.tab_create.radio_single.toggled.connect(self.sync_mode_ui)
+        self.tab_create.outline_mode_group.buttonClicked.connect(self._on_outline_mode_changed)
         
         self.tab_reader.chapter_search.textChanged.connect(self.refresh_chapter_filter)
         self.tab_reader.chapter_combo.currentIndexChanged.connect(self.on_chapter_selected)
@@ -343,13 +344,15 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
 
     def toggle_sidebar(self):
         is_visible = self.sidebar.isVisible()
-        self.sidebar.setVisible(not is_visible)
-        
-        if hasattr(self.main_panel, 'btn_toggle_sidebar'):
-            self.main_panel.btn_toggle_sidebar.setVisible(is_visible)
-            
-        if not is_visible:
+
+        if is_visible:
+            self.sidebar.setVisible(False)
+            self.splitter.setSizes([0, 1200])
+            self.main_panel.btn_toggle_sidebar.setVisible(True)
+        else:
+            self.sidebar.setVisible(True)
             self.splitter.setSizes([260, 1200])
+            self.main_panel.btn_toggle_sidebar.setVisible(False)
 
     def refresh_projects(self):
         projects = get_all_projects()
@@ -469,27 +472,23 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         </div>
         """
 
+    def _on_outline_mode_changed(self, button):
+        mode_index = self.tab_create.outline_mode_group.id(button)
+        self.tab_create.outline_stack.setCurrentIndex(mode_index)
+        if mode_index == 1:
+            plain_text = self.tab_create.outline_edit.toPlainText()
+            normalized = self._normalize_outline_markdown(plain_text)
+            self.tab_create.outline_preview.setHtml(self._render_outline_html(normalized))
+            self._detect_outline_chapters_from_plaintext(normalized)
+        else:
+            self._detect_outline_chapters_from_plaintext(self.tab_create.outline_edit.toPlainText())
+
     def on_outline_changed(self):
         if self._outline_syncing:
             return
-        
-        if not hasattr(self, '_outline_timer'):
-            self._outline_timer = QTimer(self)
-            self._outline_timer.setSingleShot(True)
-            self._outline_timer.timeout.connect(self._sync_outline_derived_views)
-        
-        self._outline_timer.start(500)
-
-    def _sync_outline_derived_views(self):
         plain_text = self.tab_create.outline_edit.toPlainText()
-        raw_like_markdown = bool(re.search(r'(^|\n)\s*(#|[-*]\s|>\s|```)', plain_text))
-        if raw_like_markdown:
-            markdown_text = self._normalize_outline_markdown(plain_text)
-            self._outline_source = markdown_text.strip()
-            self._outline_syncing = True
-            self.tab_create.outline_edit.setHtml(self._render_outline_html(markdown_text))
-            self._outline_syncing = False
-        self._detect_outline_chapters_from_plaintext(self._outline_source)
+        self._outline_source = plain_text
+        self._detect_outline_chapters_from_plaintext(plain_text)
 
     def _detect_outline_chapters_from_plaintext(self, plain_text):
         start_index = 0
@@ -512,9 +511,9 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
     def _set_outline_markdown(self, text):
         self._outline_source = self._normalize_outline_markdown(text or "")
         self._outline_syncing = True
-        self.tab_create.outline_edit.setHtml(self._render_outline_html(self._outline_source))
+        self.tab_create.outline_edit.setPlainText(self._outline_source)
         self._outline_syncing = False
-        self._sync_outline_derived_views()
+        self._detect_outline_chapters_from_plaintext(self._outline_source)
 
     def _get_outline_markdown(self):
         return self._outline_source.strip()
@@ -524,8 +523,8 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         label.style().unpolish(label)
         label.style().polish(label)
 
-    def _show_export_result(self, message, tone):
-        self.tab_export.show_result(message, tone)
+    def _show_export_result(self, message, tone, file_path=None):
+        self.tab_export.show_result(message, tone, file_path)
 
     def _get_log_tone(self, text):
         if "[ERROR]" in text or "❌" in text:
@@ -554,7 +553,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
             "danger": "rgba(220, 38, 38, 0.1)",
         }
         color_map = {
-            "info": "#94a3b8",
+            "info": "#60a5fa",
             "success": "#4ade80",
             "warning": "#fbbf24",
             "danger": "#f87171",
@@ -580,7 +579,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         if not self.selected_project:
             return
         save_outline(self.selected_project, self._get_outline_markdown())
-        QMessageBox.information(self, "保存成功", "大纲已保存")
+        CustomMessageBox.success(self, "保存成功", "大纲已保存")
         self.reload_project_data()
 
     def sync_mode_ui(self, force_reset_start=False):
@@ -635,14 +634,14 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
             name = dialog.get_name()
             style = dialog.get_style()
             if not name:
-                QMessageBox.warning(self, "提示", "请输入项目名称")
+                CustomMessageBox.warning(self, "提示", "请输入项目名称")
                 return
             try:
                 created = create_new_project(name, style)
                 self.selected_project = created
                 self.refresh_projects()
             except Exception as exc:
-                QMessageBox.critical(self, "创建失败", str(exc))
+                CustomMessageBox.critical(self, "创建失败", str(exc))
 
     def update_project_style_config(self):
         if not self.selected_project:
@@ -659,8 +658,8 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
     def remove_project(self):
         if not self.selected_project:
             return
-        answer = QMessageBox.question(self, "确认删除", f"确定删除项目 {self.selected_project} 吗？")
-        if answer != QMessageBox.Yes:
+        answer = CustomMessageBox.question(self, "确认删除", f"确定删除项目 {self.selected_project} 吗？")
+        if not answer:
             return
         delete_project(self.selected_project)
         self.selected_project = None
@@ -669,29 +668,30 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
     def open_api_settings(self):
         dialog = ApiSettingsDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            QMessageBox.information(self, "配置成功", "API配置已保存")
+            CustomMessageBox.success(self, "配置成功", "API配置已保存")
 
     def open_license_settings(self):
         dialog = LicenseSettingsDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            QMessageBox.information(self, "授权成功", "系统授权已验证并保存")
+            CustomMessageBox.success(self, "授权成功", "系统授权已验证并保存")
 
     def open_model_params_settings(self):
         dialog = ModelParamsDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            QMessageBox.information(self, "配置成功", "模型参数已保存")
+            CustomMessageBox.success(self, "配置成功", "模型参数已保存")
 
     def start_generation(self):
         if self.is_generating:
             return
         if not self.selected_project:
-            QMessageBox.warning(self, "提示", "请先创建或选择项目")
+            CustomMessageBox.warning(self, "提示", "请先创建或选择项目")
             return
         outline = self._get_outline_markdown().strip()
         if len(outline) < 50:
-            QMessageBox.warning(self, "提示", "请先完善大纲（至少 50 字）")
+            CustomMessageBox.warning(self, "提示", "请先完善大纲（至少 50 字）")
             return
         self.is_generating = True
+        self.tab_create.btn_generate.setText("生成中...")
         self.tab_create.btn_generate.setEnabled(False)
         self.tab_create.progress.setVisible(True)
         self.tab_create.progress.setValue(0)
@@ -741,14 +741,15 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
 
     def on_worker_finished(self, success, message):
         self.is_generating = False
+        self.tab_create.btn_generate.setText("启动生成引擎")
         self.tab_create.btn_generate.setEnabled(True)
+        self.tab_create.progress.setValue(0)
         self.tab_create.progress.setVisible(False)
         if success:
-            self.tab_create.progress.setValue(100)
             add_run_log(self.run_logs, "系统", message, "success")
             self.refresh_log_view()
         else:
-            QMessageBox.warning(self, "任务结束", message)
+            CustomMessageBox.warning(self, "任务结束", message)
         self.reload_project_data()
         self.worker = None
         self.worker_thread = None
@@ -864,13 +865,13 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         if not self.run_logs:
             self.tab_monitor.logs_view.setHtml("<p style='color:#64748b; font-family:sans-serif;'>等待任务启动...</p>")
             return
-        blocks = [self._format_log_html(log) for log in reversed(self.run_logs)]
+        blocks = [self._format_log_html(log) for log in self.run_logs]
         self.tab_monitor.logs_view.setHtml("".join(blocks))
         self.tab_monitor.logs_view.verticalScrollBar().setValue(self.tab_monitor.logs_view.verticalScrollBar().maximum())
 
     def _export_guard(self):
         if not self.selected_project:
-            QMessageBox.warning(self, "提示", "请先选择项目")
+            CustomMessageBox.warning(self, "提示", "请先选择项目")
             return False
         return True
 
@@ -880,7 +881,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         try:
             from src.export import export_to_word
             path = export_to_word(self.selected_project)
-            self._show_export_result(f"已导出: {os.path.basename(path)}", "success")
+            self._show_export_result(f"已导出至: {path}", "success", path)
         except Exception as exc:
             self._show_export_result(f"导出失败: {exc}", "danger")
 
@@ -890,7 +891,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         try:
             from src.export import export_to_epub
             path = export_to_epub(self.selected_project)
-            self._show_export_result(f"已导出: {os.path.basename(path)}", "success")
+            self._show_export_result(f"已导出至: {path}", "success", path)
         except Exception as exc:
             self._show_export_result(f"导出失败: {exc}", "danger")
 
@@ -900,7 +901,7 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         try:
             from src.export import export_to_txt
             path = export_to_txt(self.selected_project)
-            self._show_export_result(f"已导出: {os.path.basename(path)}", "success")
+            self._show_export_result(f"已导出至: {path}", "success", path)
         except Exception as exc:
             self._show_export_result(f"导出失败: {exc}", "danger")
 
@@ -910,6 +911,6 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         try:
             from src.export import export_all_formats
             paths = export_all_formats(self.selected_project)
-            self._show_export_result(f"全部导出成功: {os.path.dirname(paths['txt'])}", "success")
+            self._show_export_result(f"全部导出成功: {os.path.dirname(paths['txt'])}", "success", paths['txt'])
         except Exception as exc:
             self._show_export_result(f"导出失败: {exc}", "danger")
