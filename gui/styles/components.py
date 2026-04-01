@@ -521,4 +521,190 @@ QGroupBox::title {{
 QFormLayout {{
     spacing: 12px;
 }}
+
+/* ===== 侧边栏专用样式 ===== */
+
+/* 侧边栏容器 */
+QFrame#Sidebar {{
+    background-color: {Colors.SURFACE};
+    border-right: 1px solid {Colors.BORDER};
+}}
+
+/* 侧边栏头部 */
+QWidget#SidebarHeader {{
+    background-color: {Colors.SURFACE};
+    border-bottom: 1px solid {Colors.BORDER};
+}}
+
+/* Logo容器 */
+QWidget#LogoContainer {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {Colors.PRIMARY_500}, stop:1 {Colors.PURPLE_500});
+    border-radius: {Radius.MD};
+}}
+
+QLabel#LogoText {{
+    color: {Colors.WHITE};
+    font-size: 12px;
+    font-weight: {Typography.WEIGHT_BOLD};
+}}
+
+/* 品牌标题 */
+QLabel#BrandTitle {{
+    font-size: 15px;
+    font-weight: {Typography.WEIGHT_SEMIBOLD};
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+/* 版本号 */
+QLabel#VersionText {{
+    font-size: 11px;
+    color: {Colors.TEXT_MUTED};
+}}
+
+/* 侧边栏内容区 */
+QWidget#SidebarContent {{
+    background-color: {Colors.SURFACE};
+}}
+
+/* 分组标签 */
+QLabel#SectionLabel {{
+    font-size: 11px;
+    font-weight: {Typography.WEIGHT_SEMIBOLD};
+    color: {Colors.TEXT_MUTED};
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    margin-top: 16px;
+}}
+
+QLabel#SectionLabel:first-of-type {{
+    margin-top: 0;
+}}
+
+/* 项目选择器 */
+QComboBox#ProjectSelector {{
+    background-color: {Colors.SURFACE};
+    border: 1px solid {Colors.BORDER};
+    border-radius: {Radius.LG};
+    padding: 0 12px;
+    padding-right: 28px;
+    min-height: 42px;
+    font-size: {Typography.BODY['size']};
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+QComboBox#ProjectSelector:hover {{
+    border-color: {Colors.PRIMARY_400};
+}}
+
+QComboBox#ProjectSelector:focus {{
+    border-color: {Colors.PRIMARY_500};
+    border-width: 1px;
+}}
+
+/* 文风选择器 */
+QComboBox#StyleSelector {{
+    background-color: {Colors.SURFACE};
+    border: 1px solid {Colors.BORDER};
+    border-radius: {Radius.LG};
+    padding: 0 12px;
+    padding-right: 28px;
+    min-height: 40px;
+    font-size: {Typography.BODY['size']};
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+QComboBox#StyleSelector:hover {{
+    border-color: {Colors.PRIMARY_400};
+}}
+
+/* 小型主按钮 */
+QPushButton#PrimaryButtonSmall {{
+    background-color: {Colors.PRIMARY_500};
+    border: none;
+    border-radius: {Radius.MD};
+    color: {Colors.WHITE};
+    font-size: {Typography.BODY_SMALL['size']};
+    font-weight: {Typography.WEIGHT_MEDIUM};
+    min-height: 36px;
+    padding: 0 16px;
+}}
+
+QPushButton#PrimaryButtonSmall:hover {{
+    background-color: {Colors.PRIMARY_600};
+}}
+
+QPushButton#PrimaryButtonSmall:pressed {{
+    background-color: {Colors.PRIMARY_700};
+}}
+
+/* 危险图标按钮 */
+QPushButton#DangerIconButton {{
+    background-color: transparent;
+    border: 1px solid {Colors.ERROR_200};
+    border-radius: {Radius.MD};
+    color: {Colors.ERROR_500};
+    font-size: 14px;
+    min-width: 36px;
+    min-height: 36px;
+    max-width: 36px;
+    max-height: 36px;
+    padding: 0;
+}}
+
+QPushButton#DangerIconButton:hover {{
+    background-color: {Colors.ERROR_50};
+    border-color: {Colors.ERROR_500};
+}}
+
+QPushButton#DangerIconButton:pressed {{
+    background-color: {Colors.ERROR_100};
+}}
+
+/* 设置容器 */
+QWidget#SettingsContainer {{
+    background-color: transparent;
+    margin-top: 8px;
+}}
+
+/* 分隔线 */
+QWidget#DividerLine {{
+    background-color: {Colors.BORDER};
+    max-height: 1px;
+}}
+
+QLabel#DividerText {{
+    font-size: 11px;
+    font-weight: {Typography.WEIGHT_SEMIBOLD};
+    color: {Colors.TEXT_MUTED};
+    text-transform: uppercase;
+    padding: 0 8px;
+}}
+
+/* 设置项 */
+QPushButton#SettingItem {{
+    background-color: transparent;
+    border: none;
+    border-radius: {Radius.MD};
+    color: {Colors.TEXT_SECONDARY};
+    font-size: {Typography.BODY_SMALL['size']};
+    text-align: left;
+    padding: 0 12px;
+    min-height: 38px;
+}}
+
+QPushButton#SettingItem:hover {{
+    background-color: {Colors.GRAY_100};
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+QPushButton#SettingItem:pressed {{
+    background-color: {Colors.GRAY_200};
+}}
+
+/* 底部文字 */
+QLabel#FooterText {{
+    font-size: 11px;
+    color: {Colors.TEXT_MUTED};
+    margin-top: 16px;
+}}
 """
