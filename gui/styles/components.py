@@ -308,18 +308,15 @@ QComboBox:disabled {{
 
 QComboBox::drop-down {{
     border: none;
-    width: 20px;
-    padding-right: 4px;
+    width: 0px;
     background: transparent;
 }}
 
 QComboBox::down-arrow {{
     image: none;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid {Colors.TEXT_SECONDARY};
-    width: 0;
-    height: 0;
+    width: 0px;
+    height: 0px;
+    border: none;
 }}
 
 QComboBox::down-arrow:on {{
@@ -706,5 +703,272 @@ QLabel#FooterText {{
     font-size: 11px;
     color: {Colors.TEXT_MUTED};
     margin-top: 16px;
+}}
+
+/* 终端/日志查看器 */
+QTextEdit#LogViewer {{
+    background-color: #1E1E1E;
+    color: #E5E7EB;
+    border: none;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 16px;
+}}
+
+QFrame#CardHeader {{
+    background-color: {Colors.GRAY_50};
+    border-bottom: 1px solid {Colors.BORDER};
+}}
+
+/* 标签页样式 */
+QTabWidget::pane {{
+    border: none;
+    background-color: transparent;
+}}
+
+QTabBar::tab {{
+    background-color: transparent;
+    color: {Colors.TEXT_SECONDARY};
+    padding: 10px 20px;
+    margin-right: 4px;
+    border-radius: {Radius.LG};
+    font-size: {Typography.BODY['size']};
+    font-weight: {Typography.WEIGHT_MEDIUM};
+}}
+
+QTabBar::tab:hover {{
+    background-color: {Colors.GRAY_100};
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+QTabBar::tab:selected {{
+    background-color: {Colors.PRIMARY_50};
+    color: {Colors.PRIMARY_600};
+    font-weight: {Typography.WEIGHT_SEMIBOLD};
+}}
+
+/* ===== 弹窗对话框专用样式 ===== */
+
+/* 弹窗容器 */
+QFrame#DialogContainer {{
+    background-color: {Colors.SURFACE};
+    border: 1px solid {Colors.BORDER};
+    border-radius: {Radius.XL2};
+}}
+
+/* 弹窗标题 */
+QLabel#PageTitle {{
+    font-size: {Typography.H3['size']};
+    font-weight: {Typography.WEIGHT_BOLD};
+    color: {Colors.TEXT_PRIMARY};
+    margin-bottom: 4px;
+}}
+
+/* 弹窗描述文字 */
+QLabel#DialogDescription {{
+    font-size: {Typography.CAPTION['size']};
+    color: {Colors.TEXT_TERTIARY};
+    margin-bottom: 16px;
+}}
+
+/* 弹窗主按钮 */
+QDialog QPushButton#PrimaryButton {{
+    background-color: {Colors.PRIMARY_500};
+    border: none;
+    border-radius: {Radius.MD};
+    color: {Colors.WHITE};
+    font-size: {Typography.BODY['size']};
+    font-weight: {Typography.WEIGHT_MEDIUM};
+    min-height: {Sizes.BUTTON_HEIGHT_LG}px;
+    padding: 0 24px;
+}}
+
+QDialog QPushButton#PrimaryButton:hover {{
+    background-color: {Colors.PRIMARY_600};
+}}
+
+QDialog QPushButton#PrimaryButton:pressed {{
+    background-color: {Colors.PRIMARY_700};
+}}
+
+/* 弹窗次要按钮 */
+QDialog QPushButton#SecondaryButton {{
+    background-color: transparent;
+    border: 1px solid {Colors.BORDER};
+    border-radius: {Radius.MD};
+    color: {Colors.TEXT_SECONDARY};
+    font-size: {Typography.BODY['size']};
+    font-weight: {Typography.WEIGHT_MEDIUM};
+    min-height: {Sizes.BUTTON_HEIGHT_LG}px;
+    padding: 0 24px;
+}}
+
+QDialog QPushButton#SecondaryButton:hover {{
+    background-color: {Colors.GRAY_50};
+    border-color: {Colors.GRAY_300};
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+QDialog QPushButton#SecondaryButton:pressed {{
+    background-color: {Colors.GRAY_100};
+}}
+
+/* 弹窗危险按钮 */
+QDialog QPushButton#DangerButton {{
+    background-color: transparent;
+    border: 1px solid {Colors.ERROR_200};
+    border-radius: {Radius.MD};
+    color: {Colors.ERROR_500};
+    font-size: {Typography.BODY['size']};
+    font-weight: {Typography.WEIGHT_MEDIUM};
+    min-height: {Sizes.BUTTON_HEIGHT_LG}px;
+    padding: 0 24px;
+}}
+
+QDialog QPushButton#DangerButton:hover {{
+    background-color: {Colors.ERROR_50};
+    border-color: {Colors.ERROR_500};
+}}
+
+/* 弹窗输入框 */
+QDialog QLineEdit {{
+    background-color: {Colors.SURFACE};
+    border: 1px solid {Colors.BORDER};
+    border-radius: {Radius.MD};
+    padding: 0 12px;
+    min-height: {Sizes.INPUT_HEIGHT_MD}px;
+    font-size: {Typography.BODY['size']};
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+QDialog QLineEdit:hover {{
+    border-color: {Colors.GRAY_300};
+}}
+
+QDialog QLineEdit:focus {{
+    border-color: {Colors.PRIMARY_500};
+}}
+
+/* 弹窗下拉框 */
+QDialog QComboBox {{
+    background-color: {Colors.SURFACE};
+    border: 1px solid {Colors.BORDER};
+    border-radius: {Radius.MD};
+    padding: 0 12px;
+    min-height: {Sizes.INPUT_HEIGHT_MD}px;
+    font-size: {Typography.BODY['size']};
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+QDialog QComboBox:hover {{
+    border-color: {Colors.GRAY_300};
+}}
+
+QDialog QComboBox:focus {{
+    border-color: {Colors.PRIMARY_500};
+}}
+
+/* 弹窗表单标签 */
+QDialog QFormLayout QLabel {{
+    font-size: {Typography.BODY_SMALL['size']};
+    color: {Colors.TEXT_SECONDARY};
+    font-weight: {Typography.WEIGHT_MEDIUM};
+}}
+
+/* 弹窗分组框 */
+QDialog QGroupBox {{
+    background-color: {Colors.GRAY_50};
+    border: 1px solid {Colors.BORDER};
+    border-radius: {Radius.LG};
+    margin-top: 16px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    font-size: {Typography.BODY_SMALL['size']};
+    font-weight: {Typography.WEIGHT_MEDIUM};
+    color: {Colors.TEXT_SECONDARY};
+}}
+
+QDialog QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+    background: {Colors.GRAY_50};
+}}
+
+/* 弹窗滑块 */
+QDialog QSlider::groove:horizontal {{
+    background-color: {Colors.GRAY_200};
+    height: 4px;
+    border-radius: 2px;
+}}
+
+QDialog QSlider::handle:horizontal {{
+    background-color: {Colors.PRIMARY_500};
+    border: none;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}}
+
+QDialog QSlider::handle:horizontal:hover {{
+    background-color: {Colors.PRIMARY_600};
+}}
+
+/* 弹窗复选框 */
+QDialog QCheckBox {{
+    spacing: 8px;
+    font-size: {Typography.BODY['size']};
+    color: {Colors.TEXT_PRIMARY};
+}}
+
+QDialog QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 2px solid {Colors.BORDER};
+    border-radius: {Radius.SM};
+    background-color: {Colors.SURFACE};
+}}
+
+QDialog QCheckBox::indicator:hover {{
+    border-color: {Colors.PRIMARY_300};
+}}
+
+QDialog QCheckBox::indicator:checked {{
+    background-color: {Colors.PRIMARY_500};
+    border-color: {Colors.PRIMARY_500};
+}}
+
+/* 提示横幅 */
+QLabel#Banner {{
+    padding: 12px 16px;
+    border-radius: {Radius.MD};
+    font-size: {Typography.BODY_SMALL['size']};
+    font-weight: {Typography.WEIGHT_MEDIUM};
+}}
+
+QLabel#Banner[tone="info"] {{
+    background-color: {Colors.PRIMARY_50};
+    color: {Colors.PRIMARY_600};
+    border: 1px solid {Colors.PRIMARY_100};
+}}
+
+QLabel#Banner[tone="success"] {{
+    background-color: {Colors.SUCCESS_50};
+    color: {Colors.SUCCESS_600};
+    border: 1px solid {Colors.SUCCESS_100};
+}}
+
+QLabel#Banner[tone="warning"] {{
+    background-color: {Colors.WARNING_50};
+    color: {Colors.WARNING_600};
+    border: 1px solid {Colors.WARNING_100};
+}}
+
+QLabel#Banner[tone="danger"] {{
+    background-color: {Colors.ERROR_50};
+    color: {Colors.ERROR_600};
+    border: 1px solid {Colors.ERROR_100};
 }}
 """

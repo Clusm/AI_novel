@@ -102,21 +102,26 @@ class TabMonitorView(QWidget):
         self.logs_view = QTextEdit()
         self.logs_view.setObjectName("LogViewer")
         self.logs_view.setReadOnly(True)
+        # 设置文本自动换行，填满整个区域
+        self.logs_view.setLineWrapMode(QTextEdit.WidgetWidth)
+        # 移除文档边距
+        self.logs_view.document().setDocumentMargin(8)
         self.logs_view.setStyleSheet("""
             QTextEdit {
                 border: none;
+                padding: 0px;
             }
             QScrollBar:vertical {
                 border: none;
                 background: transparent;
-                width: 12px;
+                width: 8px;
                 margin: 0px;
             }
             QScrollBar::handle:vertical {
                 background: rgba(100, 116, 139, 0.4);
                 min-height: 30px;
-                border-radius: 6px;
-                margin: 2px;
+                border-radius: 4px;
+                margin: 0px;
             }
             QScrollBar::handle:vertical:hover {
                 background: rgba(100, 116, 139, 0.7);
@@ -141,23 +146,27 @@ class TabMonitorView(QWidget):
         self.raw_logs_view = QTextEdit()
         self.raw_logs_view.setReadOnly(True)
         self.raw_logs_view.document().setMaximumBlockCount(5000)
+        # 设置文本自动换行，填满整个区域
+        self.raw_logs_view.setLineWrapMode(QTextEdit.WidgetWidth)
+        # 移除文档边距
+        self.raw_logs_view.document().setDocumentMargin(8)
         self.raw_logs_view.setStyleSheet("""
             QTextEdit {
                 border: none; 
                 background: #1e1e1e; 
-                padding: 12px;
+                padding: 0px;
             }
             QScrollBar:vertical {
                 border: none;
                 background: transparent;
-                width: 12px;
+                width: 8px;
                 margin: 0px;
             }
             QScrollBar::handle:vertical {
                 background: rgba(255, 255, 255, 0.2);
                 min-height: 30px;
-                border-radius: 6px;
-                margin: 2px;
+                border-radius: 4px;
+                margin: 0px;
             }
             QScrollBar::handle:vertical:hover {
                 background: rgba(255, 255, 255, 0.4);

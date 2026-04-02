@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "AI_Novel_Writer"
-#define MyAppVersion "2.4"
+#define MyAppVersion "3.0"
 #define MyAppPublisher "AI_Novel_Writer"
 #define MyAppURL "https://github.com/yourusername/ai-novel-writer"
 #define MyAppExeName "AI_Novel_Writer.exe"

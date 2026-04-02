@@ -176,6 +176,8 @@ def create_tasks(
     compact_mode=False,
     writing_style="standard",
     memory_enabled: bool = False,
+    rewrite_suggestion: str = None,
+    old_chapter_content: str = "",
 ):
     """构建章节生成任务链：提纲(可选) -> 守护者 -> 主写 -> 终审。
 
@@ -257,6 +259,21 @@ def create_tasks(
     tasks.append(task2)
     
     # 3. 章节主写手任务 (原Task 4)
+    rewrite_hint = ""
+    if rewrite_suggestion:
+        rewrite_hint = "\\n【重写建议】" + str(rewrite_suggestion) + "\\n请根据以上建议优化本章内容。\\n\\n"
+
+    old_content_hint = ""
+    if old_chapter_content:
+        old_content_hint = (
+            "\\n\\n【本章旧版正文（重写时需避免与之重复）】\\n"
+            "注意：你是在重写本章，请产出与以下内容明显不同的新版本。\\n"
+            "要求：新版必须保留相同的剧情结果和角色状态，但表达方式、场景描写、"
+            "对话风格必须完全不同，严禁照搬旧版的段落、句式或描写。\\n"
+            + old_chapter_content[:3000] + "\\n"
+            "--- 旧版正文结束 ---\\n"
+        )
+
     writer_instruction = (
         f"根据所有准备工作撰写{min_chars}-{max_chars}字正文。\n"
         "强制要求：\n"
@@ -275,9 +292,18 @@ def create_tasks(
         "新增/回收伏笔：...\n"
         "下一章承接锚点：...\n"
         "[SUMMARY_END]\n"
-        f"{style_instruction}"
-        f"{writer_style_instruction}"
-        f"{base_context}{prev_info}"
+        "{style_instruction}"
+        "{writer_style_instruction}"
+        "{base_context}{prev_info}"
+    ).format(
+        min_chars=min_chars,
+        max_chars=max_chars,
+        rewrite_hint=rewrite_hint,
+        old_content_hint=old_content_hint,
+        style_instruction=style_instruction,
+        writer_style_instruction=writer_style_instruction,
+        base_context=base_context,
+        prev_info=prev_info,
     )
     if compact_mode:
         writer_instruction = (

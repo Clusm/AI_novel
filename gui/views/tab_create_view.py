@@ -5,6 +5,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -61,47 +62,10 @@ class TabCreateView(QWidget):
 
         left_layout.addLayout(header_row)
 
-        self.outline_stack = QStackedWidget()
-
-        self.outline_edit = QPlainTextEdit()
-        self.outline_edit.setObjectName("MarkdownEditor")
-        self.outline_edit.setPlaceholderText("# 故事标题\n\n## 第一章：起航\n在这里写下你的故事大纲...")
-
         self.outline_preview = QTextEdit()
         self.outline_preview.setObjectName("ReaderContent")
         self.outline_preview.setReadOnly(True)
-
-        self.outline_stack.addWidget(self.outline_edit)
-        self.outline_stack.addWidget(self.outline_preview)
-
-        mode_tabs = QHBoxLayout()
-        mode_tabs.setSpacing(4)
-
-        self.btn_write_mode = QPushButton("编辑")
-        self.btn_write_mode.setCheckable(True)
-        self.btn_write_mode.setChecked(True)
-        self.btn_write_mode.setObjectName("SegmentedButton")
-        self.btn_write_mode.setCursor(Qt.PointingHandCursor)
-        self.btn_write_mode.setFixedSize(60, 28)
-
-        self.btn_preview_mode = QPushButton("预览")
-        self.btn_preview_mode.setCheckable(True)
-        self.btn_preview_mode.setObjectName("SegmentedButton")
-        self.btn_preview_mode.setCursor(Qt.PointingHandCursor)
-        self.btn_preview_mode.setFixedSize(60, 28)
-
-        # 使用 QButtonGroup 实现互斥
-        self.outline_mode_group = QButtonGroup(self)
-        self.outline_mode_group.setExclusive(True)
-        self.outline_mode_group.addButton(self.btn_write_mode, 0)
-        self.outline_mode_group.addButton(self.btn_preview_mode, 1)
-
-        mode_tabs.addWidget(self.btn_write_mode)
-        mode_tabs.addWidget(self.btn_preview_mode)
-        mode_tabs.addStretch(1)
-
-        left_layout.addLayout(mode_tabs)
-        left_layout.addWidget(self.outline_stack, 1)
+        left_layout.addWidget(self.outline_preview, 1)
 
         tools = QHBoxLayout()
         tools.setContentsMargins(0, 0, 0, 0)
@@ -138,62 +102,82 @@ class TabCreateView(QWidget):
         mode_group = QWidget()
         mode_layout = QVBoxLayout(mode_group)
         mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.setSpacing(4)
-        
-        mode_label = QLabel("创作模式")
+        mode_layout.setSpacing(8)
+
+        mode_label = QLabel("生成模式")
         mode_label.setObjectName("MutedText")
         mode_layout.addWidget(mode_label)
-        
-        radios = QHBoxLayout()
-        radios.setSpacing(20)
-        self.radio_single = QRadioButton("单章精修")
-        self.radio_batch = QRadioButton("批量速更")
-        self.radio_single.setChecked(True)
-        self.radio_single.setCursor(Qt.PointingHandCursor)
-        self.radio_batch.setCursor(Qt.PointingHandCursor)
-        
-        self.mode_group = QButtonGroup(self)
-        self.mode_group.addButton(self.radio_single)
-        self.mode_group.addButton(self.radio_batch)
-        
-        radios.addWidget(self.radio_single)
-        radios.addWidget(self.radio_batch)
-        radios.addStretch(1)
-        mode_layout.addLayout(radios)
-        
+
+        self.combo_mode = QComboBox()
+        self.combo_mode.addItems(["新建章节", "重写章节"])
+        self.combo_mode.setMinimumHeight(40)
+        self.combo_mode.setCursor(Qt.PointingHandCursor)
+        mode_layout.addWidget(self.combo_mode)
+
         return mode_group
     
     def _build_settings_grid(self):
-        grid_widget = QWidget()
-        self.settings_grid = QGridLayout(grid_widget)
-        self.settings_grid.setContentsMargins(0, 0, 0, 0)
-        self.settings_grid.setHorizontalSpacing(16)
-        self.settings_grid.setVerticalSpacing(6)
-        self.settings_grid.setColumnStretch(0, 1)
-        self.settings_grid.setColumnStretch(1, 1)
-        
+        self.settings_stack = QStackedWidget()
+
+        # 新建章节页面
+        new_widget = QWidget()
+        new_grid = QGridLayout(new_widget)
+        new_grid.setContentsMargins(0, 0, 0, 0)
+        new_grid.setHorizontalSpacing(20)
+        new_grid.setVerticalSpacing(8)
+        new_grid.setColumnStretch(0, 1)
+        new_grid.setColumnStretch(1, 1)
+
         self.lbl_start = QLabel("起始序号")
         self.lbl_start.setObjectName("MutedText")
         self.spin_start = QSpinBox()
         self.spin_start.setMinimum(1)
         self.spin_start.setMaximum(9999)
-        self.spin_start.setMinimumHeight(52)
+        self.spin_start.setMinimumHeight(48)
         self.spin_start.setAlignment(Qt.AlignCenter)
-        
+
         self.lbl_count = QLabel("生成章数")
         self.lbl_count.setObjectName("MutedText")
         self.spin_count = QSpinBox()
         self.spin_count.setMinimum(1)
         self.spin_count.setMaximum(10)
-        self.spin_count.setMinimumHeight(52)
+        self.spin_count.setMinimumHeight(48)
         self.spin_count.setAlignment(Qt.AlignCenter)
-        
-        self.settings_grid.addWidget(self.lbl_start, 0, 0, 1, 1)
-        self.settings_grid.addWidget(self.lbl_count, 0, 1, 1, 1)
-        self.settings_grid.addWidget(self.spin_start, 1, 0, 1, 1)
-        self.settings_grid.addWidget(self.spin_count, 1, 1, 1, 1)
-        
-        return grid_widget
+
+        new_grid.addWidget(self.lbl_start, 0, 0, 1, 1, Qt.AlignLeft | Qt.AlignBottom)
+        new_grid.addWidget(self.lbl_count, 0, 1, 1, 1, Qt.AlignLeft | Qt.AlignBottom)
+        new_grid.addWidget(self.spin_start, 1, 0, 1, 1)
+        new_grid.addWidget(self.spin_count, 1, 1, 1, 1)
+
+        # 重写章节页面
+        rewrite_widget = QWidget()
+        rewrite_layout = QVBoxLayout(rewrite_widget)
+        rewrite_layout.setContentsMargins(0, 0, 0, 0)
+        rewrite_layout.setSpacing(8)
+
+        lbl_chapter = QLabel("选择章节")
+        lbl_chapter.setObjectName("MutedText")
+        rewrite_layout.addWidget(lbl_chapter)
+
+        self.combo_chapter = QComboBox()
+        self.combo_chapter.setMinimumHeight(40)
+        self.combo_chapter.setCursor(Qt.PointingHandCursor)
+        rewrite_layout.addWidget(self.combo_chapter)
+
+        lbl_suggestion = QLabel("重写建议")
+        lbl_suggestion.setObjectName("MutedText")
+        rewrite_layout.addWidget(lbl_suggestion)
+
+        self.text_suggestion = QPlainTextEdit()
+        self.text_suggestion.setPlaceholderText("输入重写建议，例如：增强情感描写、加快节奏...")
+        self.text_suggestion.setMinimumHeight(100)
+        self.text_suggestion.setMaximumHeight(150)
+        rewrite_layout.addWidget(self.text_suggestion)
+
+        self.settings_stack.addWidget(new_widget)
+        self.settings_stack.addWidget(rewrite_widget)
+
+        return self.settings_stack
     
     def _build_hint_banner(self):
         self.smart_hint = QLabel("")
@@ -206,23 +190,30 @@ class TabCreateView(QWidget):
     def _build_action_area(self):
         action_area = QVBoxLayout()
         action_area.setSpacing(12)
-        
+
         self.btn_generate = QPushButton("启动生成引擎")
         self.btn_generate.setObjectName("PrimaryButton")
         self.btn_generate.setMinimumHeight(50)
         self.btn_generate.setCursor(Qt.PointingHandCursor)
-        
+
+        self.btn_stop = QPushButton("停止生成")
+        self.btn_stop.setObjectName("DangerButton")
+        self.btn_stop.setMinimumHeight(50)
+        self.btn_stop.setCursor(Qt.PointingHandCursor)
+        self.btn_stop.setVisible(False)
+
         self.progress = QProgressBar()
         self.progress.setValue(0)
         self.progress.setTextVisible(False)
         self.progress.setFixedHeight(6)
-        
+
         self.progress_label = QLabel("就绪")
         self.progress_label.setAlignment(Qt.AlignCenter)
         self.progress_label.setObjectName("MutedText")
-        
+
         action_area.addWidget(self.btn_generate)
+        action_area.addWidget(self.btn_stop)
         action_area.addWidget(self.progress)
         action_area.addWidget(self.progress_label)
-        
+
         return action_area

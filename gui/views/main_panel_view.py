@@ -43,13 +43,13 @@ class MainPanelView(QWidget):
     def _build_dashboard(self):
         dashboard = QWidget()
         layout = QVBoxLayout(dashboard)
-        layout.setContentsMargins(24, 16, 36, 16)
-        layout.setSpacing(12)
-        
+        layout.setContentsMargins(24, 8, 24, 16)
+        layout.setSpacing(8)
+
         layout.addLayout(self._build_header())
         layout.addWidget(self._build_stats())
         layout.addWidget(self._build_tabs(), 1)
-        
+
         return dashboard
     
     def _build_header(self):
@@ -76,57 +76,68 @@ class MainPanelView(QWidget):
         self.stats_widget = QWidget()
         self.stats_layout = QGridLayout(self.stats_widget)
         self.stats_layout.setContentsMargins(0, 0, 0, 0)
-        self.stats_layout.setHorizontalSpacing(20)
-        self.stats_layout.setVerticalSpacing(20)
+        self.stats_layout.setHorizontalSpacing(12)
+        self.stats_layout.setVerticalSpacing(12)
         
         self.stat_cards = []
         self._stat_values = []
         stat_labels = ["已生成章节", "总字数", "平均字数/章", "预计总章数"]
-        bar_colors = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6"]
-        
+
+        # 使用新的配色方案
+        from gui.styles import Colors
+        card_configs = [
+            {"bg": Colors.STAT_CARD_CHAPTERS_BG, "text": Colors.STAT_CARD_CHAPTERS_TEXT, "icon": "📚"},
+            {"bg": Colors.STAT_CARD_WORDS_BG, "text": Colors.STAT_CARD_WORDS_TEXT, "icon": "✍️"},
+            {"bg": Colors.STAT_CARD_AVG_BG, "text": Colors.STAT_CARD_AVG_TEXT, "icon": "📊"},
+            {"bg": Colors.STAT_CARD_TOTAL_BG, "text": Colors.STAT_CARD_TOTAL_TEXT, "icon": "🎯"},
+        ]
+
         for i, text in enumerate(stat_labels):
-            card_wrapper, value = self._build_stat_card(text, bar_colors[i % len(bar_colors)])
+            card_wrapper, value = self._build_stat_card(text, card_configs[i])
             self.stat_cards.append(card_wrapper)
             self._stat_values.append(value)
             self.stats_layout.addWidget(card_wrapper, 0, i)
         
         return self.stats_widget
     
-    def _build_stat_card(self, label_text, color):
+    def _build_stat_card(self, label_text, config):
         card_wrapper = QFrame()
         card_wrapper.setObjectName("Card")
-        
+        card_wrapper.setStyleSheet(f"""
+            QFrame#Card {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 {config['bg']}, stop:1 #FFFFFF);
+                border: 1px solid rgba(0,0,0,0.04);
+                border-radius: 10px;
+            }}
+        """)
+
         wrapper_layout = QVBoxLayout(card_wrapper)
-        wrapper_layout.setContentsMargins(0, 0, 0, 0)
-        wrapper_layout.setSpacing(0)
-        
-        color_bar = QFrame()
-        color_bar.setObjectName("ColorBar")
-        color_bar.setFixedHeight(6)
-        color_bar.setStyleSheet(f"background: {color}; border-top-left-radius: 14px; border-top-right-radius: 14px;")
-        wrapper_layout.addWidget(color_bar)
-        
-        content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(10, 10, 10, 10)
-        content_layout.setSpacing(2)
-        
+        wrapper_layout.setContentsMargins(12, 12, 12, 12)
+        wrapper_layout.setSpacing(4)
+
+        # 图标
+        icon_label = QLabel(config['icon'])
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("font-size: 20px;")
+        wrapper_layout.addWidget(icon_label)
+
+        # 数值
         value = QLabel("0")
         value.setAlignment(Qt.AlignCenter)
         value.setObjectName("StatValue")
-        value.setStyleSheet("font-size: 20px; font-weight: bold;")
-        
+        value.setStyleSheet(f"font-size: 24px; font-weight: 700; color: {config['text']};")
+        wrapper_layout.addWidget(value)
+
+        # 标签
         label = QLabel(label_text)
         label.setAlignment(Qt.AlignCenter)
         label.setObjectName("StatLabel")
-        label.setStyleSheet("font-size: 12px; color: #64748b;")
-        
-        content_layout.addWidget(value)
-        content_layout.addWidget(label)
-        
-        wrapper_layout.addLayout(content_layout)
-        
-        apply_drop_shadow(card_wrapper, blur_radius=20, y_offset=4, alpha=15)
-        
+        label.setStyleSheet("font-size: 11px; color: #64748b; font-weight: 500;")
+        wrapper_layout.addWidget(label)
+
+        apply_drop_shadow(card_wrapper, blur_radius=15, y_offset=2, alpha=12)
+
         return card_wrapper, value
     
     def _build_tabs(self):

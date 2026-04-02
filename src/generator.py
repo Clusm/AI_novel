@@ -71,12 +71,13 @@ def get_embedder_config():
         import lancedb  # noqa: F401
     except ImportError:
         return None, "no_lancedb"
+
     return {
         "provider": "openai",
         "config": {
             "api_key": api_key,
             "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "model": "text-embedding-v3",
+            "model_name": "text-embedding-v3",
         },
     }, None
 
@@ -367,6 +368,105 @@ def _expand_chapter_to_min_length(agent, chapter_number: int, body_text: str, mi
     )
     expanded = str(expand_crew.kickoff())
     return expanded
+
+
+def _refinalize_content(agent, chapter_number: int, body_text: str, min_chars: int, max_chars: int, rewrite_suggestion: str = None) -> str:
+    """
+    扩写或重写后，重新让终审专家审核内容并去除重复。
+    仅在 rewrite_suggestion 存在时（重写模式）触发。
+    """
+    if not rewrite_suggestion:
+        return body_text
+
+    refine_task = Task(
+        description=(
+            f"请对以下章节正文进行最终审核与润色。\n\n"
+            "审核要求：\n"
+            "1. 检查是否存在大段重复（相同或高度相似的段落、句子、描写），如有必须删除或改写，只保留一处；\n"
+            "2. 确保承接上一章末状态；\n"
+            "3. 确保无角色状态回滚、瞬移、未铺垫新增设定；\n"
+            "4. 确保以动作/对白/冲突起笔，无复述前情式开场；\n"
+            "5. 最终正文禁止包含任何情节分段标题（##/###/一、二、三等）；\n"
+            "6. 最终正文禁止包含 [SUMMARY_BEGIN]...[SUMMARY_END] 摘要块。\n\n"
+            f"【待审核正文】\n{body_text}"
+        ),
+        agent=agent,
+        expected_output=f"经审核润色后的完整章节定稿（至少{min_chars}字）",
+    )
+    refine_crew = Crew(
+        agents=[agent],
+        tasks=[refine_task],
+        process=Process.sequential,
+        verbose=False,
+        memory=False,
+    )
+    refined = str(refine_crew.kickoff())
+    refined = _sanitize_final_content(refined, chapter_number)
+    return refined
+
+
+def _dedupe_body_repetition(body_text: str, threshold: float = 0.85) -> str:
+    """
+    检测并去除章节正文内部的重复段落。
+    使用滑动窗口 + 相似度比较，移除高度相似的连续段落。
+    返回：去重后的正文。
+    """
+    if not body_text:
+        return body_text
+
+    # 提取纯正文（去掉标题）
+    text = (body_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    text = re.sub(r"^#.*\n?", "", text).strip()
+    if not text:
+        return body_text
+
+    # 按段落分割
+    paragraphs = []
+    for p in text.split("\n\n"):
+        p = p.strip()
+        if p:
+            paragraphs.append(p)
+
+    if len(paragraphs) < 3:
+        return body_text
+
+    # 标准化用于相似度比较
+    def normalize_for_compare(s):
+        t = re.sub(r"\s+", "", s)
+        t = re.sub(r"[""\"''']", "", t)
+        return t.lower()
+
+    # 找出需要删除的段落索引（去重时标记要保留第一个，删除后续相似的）
+    to_remove = set()
+    for i in range(len(paragraphs)):
+        if i in to_remove:
+            continue
+        norm_i = normalize_for_compare(paragraphs[i])
+        if len(norm_i) < 50:
+            continue
+        for j in range(i + 1, len(paragraphs)):
+            if j in to_remove:
+                continue
+            norm_j = normalize_for_compare(paragraphs[j])
+            if len(norm_j) < 50:
+                continue
+            # 相似度检查
+            ratio = SequenceMatcher(None, norm_i, norm_j).ratio()
+            if ratio >= threshold:
+                to_remove.add(j)
+
+    if not to_remove:
+        return body_text
+
+    # 保留未被标记删除的段落
+    kept = [p for idx, p in enumerate(paragraphs) if idx not in to_remove]
+    deduped = "\n\n".join(kept)
+
+    # 重新组装（保留原标题）
+    title_match = re.match(r"^#.*\n?", body_text)
+    if title_match:
+        return title_match.group(0) + "\n\n" + deduped + "\n"
+    return deduped + "\n"
 
 
 def _sanitize_final_content(content: str, chapter_number: int) -> str:
@@ -746,7 +846,7 @@ def _build_previous_context(project_name: str, chapter_number: int) -> tuple[str
     return previous_context, previous_chapter_text
 
 
-def generate_chapter(project_name, outline, chapter_number, log_callback=None):
+def generate_chapter(project_name, outline, chapter_number, log_callback=None, rewrite_suggestion=None):
     """
     核心函数：生成单个章节
 
@@ -761,6 +861,7 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
     - outline: 故事大纲
     - chapter_number: 章节序号
     - log_callback: 日志回调函数
+    - rewrite_suggestion: 重写建议（可选）
 
     返回：生成的章节内容
     """
@@ -844,6 +945,14 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
 
         agents = create_agents(project_name=project_name, chapter_number=int(chapter_number))
         previous_context, previous_chapter_text = _build_previous_context(project_name, int(chapter_number))
+
+        # 重写模式下加载当前章节的旧内容，用于告知写手需要避免重复
+        old_chapter_content = ""
+        if rewrite_suggestion:
+            old_chapter_path = os.path.join(workspace_manager.get_projects_dir(), project_name, "chapters", f"第{chapter_number}章.md")
+            if os.path.exists(old_chapter_path):
+                with open(old_chapter_path, "r", encoding="utf-8") as f:
+                    old_chapter_content = f.read()
         recent_canon_entries = load_recent_canon_entries(project_name, limit=3)
         recent_canon_context = "\n\n".join(recent_canon_entries).strip()
         story_bible = ensure_story_bible(
@@ -894,6 +1003,8 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                 compact_mode=compact_mode,
                 writing_style=writing_style,
                 memory_enabled=memory_enabled,
+                rewrite_suggestion=rewrite_suggestion,
+                old_chapter_content=old_chapter_content,
             )
             mode_label = "精简链路" if compact_mode else "完整链路"
             if log_callback:
@@ -901,15 +1012,38 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                 log_callback(message)
                 run_logs.append(f"[{datetime.now().isoformat()}] {message}")
 
-            crew = Crew(
-                agents=agents,
-                tasks=tasks,
-                process=Process.sequential,
-                verbose=False,
-                memory=memory_enabled,
-                embedder=embedder if memory_enabled else None,
-                step_callback=step_callback,
-            )
+            # 临时替换环境变量，确保embedder使用DashScope
+            saved_vars = {
+                "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY"),
+                "OPENAI_API_BASE": os.environ.get("OPENAI_API_BASE"),
+                "OPENAI_EMBEDDING_MODEL": os.environ.get("OPENAI_EMBEDDING_MODEL"),
+            }
+            if memory_enabled and embedder:
+                dashscope_key = keys.get("DASHSCOPE_API_KEY", "").strip()
+                if dashscope_key:
+                    os.environ["OPENAI_API_KEY"] = dashscope_key
+                    os.environ["OPENAI_API_BASE"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    os.environ["OPENAI_EMBEDDING_MODEL"] = "text-embedding-v3"
+                    # 更新embedder config中的model_name字段
+                    embedder["config"]["model_name"] = "text-embedding-v3"
+
+            try:
+                crew = Crew(
+                    agents=agents,
+                    tasks=tasks,
+                    process=Process.sequential,
+                    verbose=False,
+                    memory=memory_enabled,
+                    embedder=embedder if memory_enabled else None,
+                    step_callback=step_callback,
+                )
+            finally:
+                # 恢复原环境变量
+                for key, value in saved_vars.items():
+                    if value:
+                        os.environ[key] = value
+                    else:
+                        os.environ.pop(key, None)
             if log_callback:
                 log_callback("💡 Agent 开始思考与协作... (这可能需要几分钟)")
             kickoff_timeout = int(os.getenv("CREW_KICKOFF_TIMEOUT_SEC", "1500"))
@@ -1035,9 +1169,16 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
                 expanded_twice = _expand_chapter_to_min_length(agents[3], int(chapter_number), final_content, min_chars, max_chars)
                 final_content = _sanitize_final_content(expanded_twice, int(chapter_number))
                 current_len = _count_body_chars(final_content)
+            # 重写模式下，扩写后重新让终审专家审核并去重
+            if rewrite_suggestion:
+                if log_callback:
+                    log_callback("🔍 扩写后重新进行终审审核...", status='info')
+                final_content = _refinalize_content(agents[3], int(chapter_number), final_content, min_chars, max_chars, rewrite_suggestion)
+                current_len = _count_body_chars(final_content)
             if log_callback:
                 log_callback(f"✅ 扩写完成，正文长度：{current_len}字", status='success')
 
+        # 与上一章开头的去重
         dedup_enabled = os.getenv("CHAPTER_OPENING_DEDUP", "true").lower() != "false"
         if dedup_enabled and int(chapter_number) > 1 and previous_chapter_text:
             target_llm = agents[3].llm if len(agents) > 3 else agents[0].llm
@@ -1046,6 +1187,12 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None):
             if current_len < min_chars:
                 expanded_once = _expand_chapter_to_min_length(agents[3], int(chapter_number), final_content, min_chars, max_chars)
                 final_content = _sanitize_final_content(expanded_once, int(chapter_number))
+                # 再次终审
+                if rewrite_suggestion:
+                    final_content = _refinalize_content(agents[3], int(chapter_number), final_content, min_chars, max_chars, rewrite_suggestion)
+
+        # 章节内部去重：去除正文中高度相似的重复段落
+        final_content = _dedupe_body_repetition(final_content)
 
         save_chapter(project_name, chapter_number, final_content)
         save_canon_entry(project_name, chapter_number, _build_canon_ledger(int(chapter_number), final_content))
@@ -1085,7 +1232,7 @@ def generate_single_chapter(project_name, outline, chapter_number, log_callback=
     return generate_chapter(project_name, outline, chapter_number, log_callback)
 
 
-def generate_multiple_chapters(project_name, outline, start_chapter, end_chapter, log_callback=None):
+def generate_multiple_chapters(project_name, outline, start_chapter, end_chapter, log_callback=None, rewrite_suggestion=None):
     """
     批量生成多个章节
     循环调用 generate_chapter，保存完整运行日志
@@ -1109,7 +1256,7 @@ def generate_multiple_chapters(project_name, outline, start_chapter, end_chapter
                 log_callback(message)
                 chapter_logs.append(f"[{datetime.now().isoformat()}] {message}")
 
-            result = generate_chapter(project_name, outline, chapter_num, log_callback)
+            result = generate_chapter(project_name, outline, chapter_num, log_callback, rewrite_suggestion)
             results.append(result)
 
             run_logs.extend(chapter_logs)

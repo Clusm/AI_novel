@@ -8,9 +8,17 @@ BASE_STYLES = f"""
 }}
 
 QWidget {{
-    font-family: 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+    font-family: {Typography.FONT_CHINESE};
     font-size: {Typography.BODY['size']};
     color: {Colors.TEXT_PRIMARY};
+}}
+
+QPushButton {{
+    cursor: pointer;
+}}
+
+QLineEdit, QTextEdit, QPlainTextEdit {{
+    cursor: text;
 }}
 
 QMainWindow {{
@@ -87,6 +95,10 @@ QFrame#Card {{
     background-color: {Colors.SURFACE};
     border: 1px solid {Colors.BORDER_LIGHT};
     border-radius: {Radius.XL};
+}}
+
+QFrame#Card:hover {{
+    border-color: {Colors.BORDER};
 }}
 
 QFrame#DialogContainer {{

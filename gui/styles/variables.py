@@ -42,6 +42,11 @@ class Colors:
     ERROR_500 = "#EF4444"
     ERROR_600 = "#DC2626"
 
+    PURPLE_50 = "#F5F3FF"
+    PURPLE_100 = "#EDE9FE"
+    PURPLE_500 = "#A855F7"
+    PURPLE_600 = "#7C3AED"
+
     WHITE = "#FFFFFF"
     BLACK = "#000000"
     TRANSPARENT = "transparent"
@@ -58,6 +63,16 @@ class Colors:
 
     GRADIENT_PRIMARY = f"qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {PRIMARY_500}, stop:1 {PRIMARY_600})"
 
+    # 统计卡片专属配色
+    STAT_CARD_CHAPTERS_BG = PRIMARY_50  # 已生成章节 - 蓝色
+    STAT_CARD_CHAPTERS_TEXT = PRIMARY_600
+    STAT_CARD_WORDS_BG = SUCCESS_50  # 总字数 - 绿色
+    STAT_CARD_WORDS_TEXT = SUCCESS_600
+    STAT_CARD_AVG_BG = WARNING_50  # 平均字数 - 黄色
+    STAT_CARD_AVG_TEXT = WARNING_600
+    STAT_CARD_TOTAL_BG = PURPLE_50  # 预计总章数 - 紫色
+    STAT_CARD_TOTAL_TEXT = PURPLE_600
+
 
 class Typography:
     WEIGHT_LIGHT = 300
@@ -67,15 +82,20 @@ class Typography:
     WEIGHT_BOLD = 700
     WEIGHT_EXTRABOLD = 800
 
+    # 字体栈
+    FONT_CHINESE = "-apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif"
+    FONT_ENGLISH = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif"
+    FONT_MONO = "'JetBrains Mono', 'Fira Code', 'Consolas', monospace"
+
     DISPLAY = {"size": "32px", "weight": WEIGHT_EXTRABOLD, "letter_spacing": "-0.02em"}
-    H1 = {"size": "24px", "weight": WEIGHT_BOLD, "letter_spacing": "-0.01em"}
+    H1 = {"size": "28px", "weight": WEIGHT_BOLD, "letter_spacing": "-0.01em"}
     H2 = {"size": "20px", "weight": WEIGHT_SEMIBOLD, "letter_spacing": "0"}
-    H3 = {"size": "18px", "weight": WEIGHT_SEMIBOLD, "letter_spacing": "0"}
+    H3 = {"size": "16px", "weight": WEIGHT_SEMIBOLD, "letter_spacing": "0"}
     H4 = {"size": "14px", "weight": WEIGHT_MEDIUM, "letter_spacing": "0"}
 
-    BODY = {"size": "13px", "weight": WEIGHT_REGULAR, "letter_spacing": "0"}
+    BODY = {"size": "14px", "weight": WEIGHT_REGULAR, "letter_spacing": "0"}
     BODY_SMALL = {"size": "12px", "weight": WEIGHT_REGULAR, "letter_spacing": "0"}
-    CAPTION = {"size": "11px", "weight": WEIGHT_REGULAR, "letter_spacing": "0.01em"}
+    CAPTION = {"size": "11px", "weight": WEIGHT_MEDIUM, "letter_spacing": "0.01em"}
     MICRO = {"size": "10px", "weight": WEIGHT_REGULAR, "letter_spacing": "0.02em"}
 
 
@@ -144,6 +164,7 @@ class Sizes:
     ICON_SIZE_SM = 14
     ICON_SIZE_MD = 16
     ICON_SIZE_LG = 20
+    ICON_SIZE_XL = 24
 
     TITLE_BAR_HEIGHT = 36
 
@@ -162,6 +183,41 @@ class Sizes:
     STAT_CARD_HEIGHT = 72
 
 
+class Icons:
+    """图标映射表 - 使用 Emoji 作为图标"""
+    # 操作类
+    NEW = "➕"
+    DELETE = "🗑️"
+    EDIT = "✏️"
+    SAVE = "💾"
+    COPY = "📋"
+    SETTINGS = "⚙️"
+    SEARCH = "🔍"
+
+    # 文档类
+    FILE = "📄"
+    CHAPTER = "📖"
+    FOLDER = "📁"
+
+    # 功能类
+    GENERATE = "✨"
+    STOP = "⏹️"
+    PLAY = "▶️"
+    PAUSE = "⏸️"
+
+    # 导航类
+    PREV = "◀"
+    NEXT = "▶"
+    UP = "▲"
+    DOWN = "▼"
+
+    # 状态类
+    SUCCESS = "✅"
+    WARNING = "⚠️"
+    ERROR = "❌"
+    INFO = "ℹ️"
+
+
 DESIGN_TOKENS = {
     "colors": Colors,
     "typography": Typography,
@@ -172,4 +228,5 @@ DESIGN_TOKENS = {
     "z_index": ZIndex,
     "breakpoints": Breakpoints,
     "sizes": Sizes,
+    "icons": Icons,
 }

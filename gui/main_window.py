@@ -212,13 +212,12 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.tab_monitor = TabMonitorView()
         self.tab_export = TabExportView()
         
-        self.main_panel.add_tab(self.tab_create, "创作中心")
-        self.main_panel.add_tab(self.tab_reader, "阅读管理")
-        self.main_panel.add_tab(self.tab_monitor, "运行监控")
-        self.main_panel.add_tab(self.tab_export, "导出发布")
-        
+        self.main_panel.add_tab(self.tab_create, "✨ 创作中心")
+        self.main_panel.add_tab(self.tab_reader, "📖 阅读管理")
+        self.main_panel.add_tab(self.tab_monitor, "🖥️ 运行监控")
+        self.main_panel.add_tab(self.tab_export, "📤 导出发布")
+
         self.tab_create.progress.setVisible(False)
-        self.sync_mode_ui()
 
     def _connect_signals(self):
         self.sidebar.btn_toggle_sidebar_left.clicked.connect(self.toggle_sidebar)
@@ -229,26 +228,25 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.sidebar.btn_api_settings.clicked.connect(self.open_api_settings)
         self.sidebar.btn_license_settings.clicked.connect(self.open_license_settings)
         self.sidebar.btn_model_params.clicked.connect(self.open_model_params_settings)
-        
+
         self.main_panel.btn_toggle_sidebar.clicked.connect(self.toggle_sidebar)
         self.main_panel.welcome_widget.btn_start.clicked.connect(self.create_project)
-        
-        self.tab_create.outline_edit.textChanged.connect(self.on_outline_changed)
+
         self.tab_create.btn_save_outline.clicked.connect(self.save_outline_clicked)
         self.tab_create.btn_generate.clicked.connect(self.start_generation)
-        self.tab_create.radio_single.toggled.connect(self.sync_mode_ui)
-        self.tab_create.outline_mode_group.buttonClicked.connect(self._on_outline_mode_changed)
-        
+        self.tab_create.btn_stop.clicked.connect(self.stop_generation)
+        self.tab_create.combo_mode.currentIndexChanged.connect(self.on_mode_changed)
+
         self.tab_reader.chapter_search.textChanged.connect(self.refresh_chapter_filter)
         self.tab_reader.chapter_combo.currentIndexChanged.connect(self.on_chapter_selected)
         self.tab_reader.btn_prev.clicked.connect(lambda: self.move_chapter(-1))
         self.tab_reader.btn_next.clicked.connect(lambda: self.move_chapter(1))
         self.tab_reader.btn_copy_chapter.clicked.connect(self.copy_chapter_content)
-        
+
         self.tab_monitor.monitor_mode_group.buttonClicked.connect(self._on_monitor_mode_changed)
         self.tab_monitor.btn_refresh_logs.clicked.connect(self.refresh_log_view)
         self.tab_monitor.btn_clear_logs.clicked.connect(self.clear_current_logs)
-        
+
         self.tab_export.btn_export_word.clicked.connect(self.export_word_clicked)
         self.tab_export.btn_export_epub.clicked.connect(self.export_epub_clicked)
         self.tab_export.btn_export_txt.clicked.connect(self.export_txt_clicked)
@@ -414,14 +412,17 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.main_panel.get_stat_card(1).setText(f"{total_words:,}")
         self.main_panel.get_stat_card(2).setText(f"{avg_words:,}")
         self.main_panel.get_stat_card(3).setText(str(total_planned))
-        
+
+        # 更新起始序号默认值为当前最大章节号 + 1
+        next_chapter_num = self._get_next_chapter_number(chapters)
+        self.tab_create.spin_start.setValue(next_chapter_num)
+
         if project_changed:
             outline = load_outline(self.selected_project)
-            self.tab_create.outline_edit.blockSignals(True)
-            self._set_outline_markdown(outline)
-            self.tab_create.outline_edit.blockSignals(False)
-            
-        self.sync_mode_ui(force_reset_start=project_changed)
+            self.tab_create.outline_preview.setHtml(self._render_outline_html(outline))
+            self._detect_outline_chapters_from_plaintext(outline)
+            self.refresh_chapter_combo()
+
         self.refresh_chapter_filter()
         self.refresh_log_view()
         self._last_loaded_project = self.selected_project
@@ -472,51 +473,44 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         </div>
         """
 
-    def _on_outline_mode_changed(self, button):
-        mode_index = self.tab_create.outline_mode_group.id(button)
-        self.tab_create.outline_stack.setCurrentIndex(mode_index)
-        if mode_index == 1:
-            plain_text = self.tab_create.outline_edit.toPlainText()
-            normalized = self._normalize_outline_markdown(plain_text)
-            self.tab_create.outline_preview.setHtml(self._render_outline_html(normalized))
-            self._detect_outline_chapters_from_plaintext(normalized)
-        else:
-            self._detect_outline_chapters_from_plaintext(self.tab_create.outline_edit.toPlainText())
-
-    def on_outline_changed(self):
-        if self._outline_syncing:
-            return
-        plain_text = self.tab_create.outline_edit.toPlainText()
-        self._outline_source = plain_text
-        self._detect_outline_chapters_from_plaintext(plain_text)
-
     def _detect_outline_chapters_from_plaintext(self, plain_text):
         start_index = 0
         match = re.search(r'#+\s*分卷细纲|#+\s*章节大纲', plain_text)
         if match:
             start_index = match.end()
-        
+
         chapter_matches = re.findall(
             r'第\s*\d+\s*章',
             plain_text[start_index:],
         )
         detected = len(chapter_matches)
-        
+
         if detected > 0:
             self.tab_create.chapter_detect_label.setText(f"✅ 已识别 {detected} 个章节标题")
             self.main_panel.get_stat_card(3).setText(str(detected))
         else:
             self.tab_create.chapter_detect_label.setText("⚠️ 未检测到标准章节标题（建议使用第N章）")
 
-    def _set_outline_markdown(self, text):
-        self._outline_source = self._normalize_outline_markdown(text or "")
-        self._outline_syncing = True
-        self.tab_create.outline_edit.setPlainText(self._outline_source)
-        self._outline_syncing = False
-        self._detect_outline_chapters_from_plaintext(self._outline_source)
+    def _get_next_chapter_number(self, chapters):
+        """
+        根据已生成章节列表计算下一章序号
 
-    def _get_outline_markdown(self):
-        return self._outline_source.strip()
+        参数：
+        - chapters: 章节文件名列表，如 ["第1章.md", "第2章.md"]
+
+        返回：下一章序号（整数）
+        """
+        if not chapters:
+            return 1
+
+        max_num = 0
+        for chapter_file in chapters:
+            match = re.search(r"(\d+)", chapter_file)
+            if match:
+                num = int(match.group(1))
+                max_num = max(max_num, num)
+
+        return max_num + 1
 
     def _refresh_banner_style(self, label, tone):
         label.setProperty("tone", tone)
@@ -578,55 +572,8 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
     def save_outline_clicked(self):
         if not self.selected_project:
             return
-        save_outline(self.selected_project, self._get_outline_markdown())
-        CustomMessageBox.success(self, "保存成功", "大纲已保存")
-        self.reload_project_data()
+        CustomMessageBox.info(self, "提示", "大纲为只读预览，请直接编辑项目目录下的大纲.md文件")
 
-    def sync_mode_ui(self, force_reset_start=False):
-        if not self.selected_project:
-            self.tab_create.spin_start.setVisible(True)
-            self.tab_create.smart_hint.setText("⚠️ 请先在左侧选择或创建项目")
-            self._refresh_banner_style(self.tab_create.smart_hint, "warning")
-            return
-        chapters = list_generated_chapters(self.selected_project)
-        max_chap = 0
-        for name in chapters:
-            match = re.search(r"(\d+)", name)
-            if match:
-                max_chap = max(max_chap, int(match.group(1)))
-        
-        if force_reset_start or self.tab_create.spin_start.value() <= max_chap:
-            self.tab_create.spin_start.setValue(max_chap + 1)
-            
-        try:
-            self.tab_create.spin_count.valueChanged.disconnect(self.update_hint)
-            self.tab_create.spin_start.valueChanged.disconnect(self.update_hint)
-        except:
-            pass
-        self.tab_create.spin_count.valueChanged.connect(self.update_hint)
-        self.tab_create.spin_start.valueChanged.connect(self.update_hint)
-        
-        self.update_hint()
-
-    def update_hint(self):
-        if self.tab_create.radio_batch.isChecked():
-            self.tab_create.spin_start.setVisible(True)
-            self.tab_create.lbl_start.setVisible(True)
-            self.tab_create.settings_grid.addWidget(self.tab_create.lbl_start, 0, 0, 1, 1)
-            self.tab_create.settings_grid.addWidget(self.tab_create.lbl_count, 0, 1, 1, 1)
-            self.tab_create.settings_grid.addWidget(self.tab_create.spin_start, 1, 0, 1, 1)
-            self.tab_create.settings_grid.addWidget(self.tab_create.spin_count, 1, 1, 1, 1)
-            self.tab_create.spin_count.setMaximum(10)
-            self.tab_create.smart_hint.setText(f"📅 计划任务：从第 {self.tab_create.spin_start.value()} 章开始，连续生成 {self.tab_create.spin_count.value()} 章")
-            self._refresh_banner_style(self.tab_create.smart_hint, "info")
-        else:
-            self.tab_create.spin_start.setVisible(False)
-            self.tab_create.lbl_start.setVisible(False)
-            self.tab_create.settings_grid.addWidget(self.tab_create.lbl_count, 0, 0, 1, 2)
-            self.tab_create.settings_grid.addWidget(self.tab_create.spin_count, 1, 0, 1, 2)
-            self.tab_create.spin_count.setMaximum(5)
-            self.tab_create.smart_hint.setText(f"✍️ 即将生成：第 {self.tab_create.spin_start.value()} 章")
-            self._refresh_banner_style(self.tab_create.smart_hint, "info")
 
     def create_project(self):
         dialog = NewProjectDialog(self)
@@ -686,34 +633,43 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         if not self.selected_project:
             CustomMessageBox.warning(self, "提示", "请先创建或选择项目")
             return
-        outline = self._get_outline_markdown().strip()
+        outline = load_outline(self.selected_project).strip()
         if len(outline) < 50:
             CustomMessageBox.warning(self, "提示", "请先完善大纲（至少 50 字）")
             return
+
+        mode_index = self.tab_create.combo_mode.currentIndex()
+
+        if mode_index == 0:  # 新建章节
+            start = self.tab_create.spin_start.value()
+            count = self.tab_create.spin_count.value()
+            rewrite_suggestion = None
+        else:  # 重写章节
+            if self.tab_create.combo_chapter.count() == 0:
+                CustomMessageBox.warning(self, "提示", "没有可重写的章节")
+                return
+            chapter_name = self.tab_create.combo_chapter.currentText()
+            match = re.search(r"(\d+)", chapter_name)
+            if not match:
+                CustomMessageBox.warning(self, "提示", "无法识别章节序号")
+                return
+            start = int(match.group(1))
+            count = 1
+            rewrite_suggestion = self.tab_create.text_suggestion.toPlainText().strip()
+
         self.is_generating = True
-        self.tab_create.btn_generate.setText("生成中...")
-        self.tab_create.btn_generate.setEnabled(False)
+        self.tab_create.btn_generate.setVisible(False)
+        self.tab_create.btn_stop.setVisible(True)
         self.tab_create.progress.setVisible(True)
         self.tab_create.progress.setValue(0)
         self.tab_create.progress_label.setText("正在初始化生成引擎...")
         self.run_logs = []
         self.refresh_log_view()
-        
+
         self.main_panel.tabs.setCurrentWidget(self.tab_monitor)
-        
-        if self.tab_create.radio_batch.isChecked():
-            start = self.tab_create.spin_start.value()
-        else:
-            chapters = list_generated_chapters(self.selected_project)
-            max_chap = 0
-            for name in chapters:
-                match = re.search(r"(\d+)", name)
-                if match:
-                    max_chap = max(max_chap, int(match.group(1)))
-            start = max_chap + 1
-        count = self.tab_create.spin_count.value()
+
         self.worker_thread = QThread(self)
-        self.worker = ChapterGenerationWorker(self.selected_project, outline, start, count)
+        self.worker = ChapterGenerationWorker(self.selected_project, outline, start, count, rewrite_suggestion)
         self.worker.moveToThread(self.worker_thread)
         self.worker_thread.started.connect(self.worker.run)
         self.worker.log.connect(self.on_worker_log)
@@ -741,7 +697,10 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
 
     def on_worker_finished(self, success, message):
         self.is_generating = False
-        self.tab_create.btn_generate.setText("启动生成引擎")
+        self.tab_create.btn_generate.setVisible(True)
+        self.tab_create.btn_stop.setVisible(False)
+        self.tab_create.btn_stop.setEnabled(True)
+        self.tab_create.btn_stop.setText("停止生成")
         self.tab_create.btn_generate.setEnabled(True)
         self.tab_create.progress.setValue(0)
         self.tab_create.progress.setVisible(False)
@@ -753,6 +712,27 @@ class MainWindow(QMainWindow, FramelessWindowMixin):
         self.reload_project_data()
         self.worker = None
         self.worker_thread = None
+
+    def stop_generation(self):
+        if self.worker and self.is_generating:
+            self.worker.stop()
+            self.tab_create.btn_stop.setEnabled(False)
+            self.tab_create.btn_stop.setText("正在停止...")
+            add_run_log(self.run_logs, "系统", "用户请求停止生成", "warning")
+            self.refresh_log_view()
+
+    def on_mode_changed(self, index):
+        self.tab_create.settings_stack.setCurrentIndex(index)
+        if index == 1:  # 重写模式
+            self.refresh_chapter_combo()
+
+    def refresh_chapter_combo(self):
+        self.tab_create.combo_chapter.clear()
+        if not self.selected_project:
+            return
+        chapters = list_generated_chapters(self.selected_project)
+        if chapters:
+            self.tab_create.combo_chapter.addItems(chapters)
 
     def refresh_chapter_filter(self):
         if not self.selected_project:

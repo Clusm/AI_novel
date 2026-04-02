@@ -255,6 +255,7 @@ class NewProjectDialog(QDialog, FramelessWindowMixin):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
         self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setObjectName("SecondaryButton")
         self.ok_btn = QPushButton("创建项目")
         self.ok_btn.setObjectName("PrimaryButton")
         self.cancel_btn.setMinimumHeight(Sizes.BUTTON_HEIGHT_LG)
@@ -416,6 +417,7 @@ class ApiSettingsDialog(QDialog, FramelessWindowMixin):
         self.save_btn.setMinimumHeight(Sizes.BUTTON_HEIGHT_LG)
 
         self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setObjectName("SecondaryButton")
         self.cancel_btn.setMinimumHeight(Sizes.BUTTON_HEIGHT_LG)
 
         self.result_label = QLabel("")
@@ -611,6 +613,7 @@ class ModelParamsDialog(QDialog, FramelessWindowMixin):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
         self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setObjectName("SecondaryButton")
         self.cancel_btn.setMinimumHeight(Sizes.BUTTON_HEIGHT_LG)
         self.save_btn = QPushButton("保存参数")
         self.save_btn.setObjectName("PrimaryButton")
@@ -848,6 +851,7 @@ class LicenseSettingsDialog(QDialog, FramelessWindowMixin):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
         self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setObjectName("SecondaryButton")
         self.cancel_btn.setMinimumHeight(Sizes.BUTTON_HEIGHT_LG)
 
         self.btn_verify = QPushButton("验证授权")

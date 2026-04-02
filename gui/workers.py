@@ -9,13 +9,19 @@ class ChapterGenerationWorker(QObject):
     log = Signal(str, str)
     chapter_done = Signal(int)
 
-    def __init__(self, project_name, outline, start_chapter, count):
+    def __init__(self, project_name, outline, start_chapter, count, rewrite_suggestion=None):
         super().__init__()
         self.project_name = project_name
         self.outline = outline
         self.start_chapter = start_chapter
         self.count = count
+        self.rewrite_suggestion = rewrite_suggestion
         self.is_running = True
+        self._stop_requested = False
+
+    def stop(self):
+        self._stop_requested = True
+        self.is_running = False
 
     def _emit_and_finish(self, ok, message, status=None):
         if status:
@@ -101,6 +107,8 @@ class ChapterGenerationWorker(QObject):
             current_step = 0
 
             def log_callback(message, status="info"):
+                if self._stop_requested:
+                    raise InterruptedError("用户停止生成")
                 nonlocal current_step
                 self.log.emit(message, status)
                 if "✅" in message or "已加载" in message:
@@ -114,9 +122,16 @@ class ChapterGenerationWorker(QObject):
                 self.outline,
                 self.start_chapter,
                 self.start_chapter + self.count - 1,
-                log_callback=log_callback
+                log_callback=log_callback,
+                rewrite_suggestion=self.rewrite_suggestion
             )
-            self._emit_and_finish(True, "所有章节生成完成！")
+            if self._stop_requested:
+                self._emit_and_finish(False, "生成已停止")
+            else:
+                self._emit_and_finish(True, "所有章节生成完成！")
+        except InterruptedError as e:
+            self.log.emit(f"⚠️ {str(e)}", "warning")
+            self._emit_and_finish(False, str(e))
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
