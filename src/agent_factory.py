@@ -242,22 +242,37 @@ class AgentFactory:
                 "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             },
             "kimi": {
-                "model": "openai/moonshot-v1-8k",
+                "model": "openai/kimi-k2.5",
                 "api_key": keys.get("MOONSHOT_API_KEY", ""),
                 "base_url": "https://api.moonshot.cn/v1",
             },
         }
         
         llm_config = model_map.get(provider, model_map["qwen"])
+        model_name = llm_config["model"]
         
-        return LLM(
-            model=llm_config["model"],
-            api_key=llm_config["api_key"],
-            base_url=llm_config["base_url"],
-            temperature=config.temperature,
-            top_p=config.top_p,
-            max_tokens=config.max_tokens,
-        )
+        model_lower = model_name.lower()
+        is_reasoner = any(p in model_lower for p in ["deepseek-reasoner", "openai/o1", "openai/o3", "kimi-k2"])
+        
+        if is_reasoner:
+            llm_kwargs = {
+                "model": model_name,
+                "api_key": llm_config["api_key"],
+                "base_url": llm_config["base_url"],
+            }
+            if config.max_tokens is not None:
+                llm_kwargs["max_tokens"] = config.max_tokens
+        else:
+            llm_kwargs = {
+                "model": model_name,
+                "api_key": llm_config["api_key"],
+                "base_url": llm_config["base_url"],
+                "temperature": config.temperature,
+                "top_p": config.top_p,
+                "max_tokens": config.max_tokens,
+            }
+        
+        return LLM(**llm_kwargs)
     
     @classmethod
     def get_prompt_template(cls, template_name: str) -> str:

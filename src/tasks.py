@@ -106,8 +106,8 @@ def _extract_outline_excerpt_legacy(text: str, current_chapter: int, max_chars: 
 def _build_style_profile(writing_style: str) -> dict:
     """集中管理文风相关提示与字数边界，避免 create_tasks 里散落分支。"""
     if writing_style == "tomato":
-        min_chars = int(os.getenv("CHAPTER_MIN_CHARS_TOMATO", "2100"))
-        max_chars = int(os.getenv("CHAPTER_MAX_CHARS_TOMATO", "2600"))
+        min_chars = int(os.getenv("CHAPTER_MIN_CHARS_TOMATO", "2900"))
+        max_chars = int(os.getenv("CHAPTER_MAX_CHARS_TOMATO", "3400"))
         profile = {
             "style_instruction": (
                 "\n\n【文风要求：番茄/新媒体/快节奏模式】\n"

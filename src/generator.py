@@ -1151,8 +1151,8 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None, r
         final_content = _sanitize_final_content(body_without_summary, int(chapter_number))
 
         if writing_style == "tomato":
-            min_chars = int(os.getenv("CHAPTER_MIN_CHARS_TOMATO", "2100"))
-            max_chars = int(os.getenv("CHAPTER_MAX_CHARS_TOMATO", "2600"))
+            min_chars = int(os.getenv("CHAPTER_MIN_CHARS_TOMATO", "2900"))
+            max_chars = int(os.getenv("CHAPTER_MAX_CHARS_TOMATO", "3400"))
         else:
             min_chars = int(os.getenv("CHAPTER_MIN_CHARS", "3500"))
             max_chars = int(os.getenv("CHAPTER_MAX_CHARS", "5500"))
@@ -1161,35 +1161,13 @@ def generate_chapter(project_name, outline, chapter_number, log_callback=None, r
         current_len = _count_body_chars(final_content)
         if current_len < min_chars:
             if log_callback:
-                log_callback(f"⚠️ 正文长度不足（{current_len}字 < {min_chars}字），正在自动扩写补足...", status='warning')
-            expanded_once = _expand_chapter_to_min_length(agents[3], int(chapter_number), final_content, min_chars, max_chars)
-            final_content = _sanitize_final_content(expanded_once, int(chapter_number))
-            current_len = _count_body_chars(final_content)
-            if current_len < min_chars:
-                expanded_twice = _expand_chapter_to_min_length(agents[3], int(chapter_number), final_content, min_chars, max_chars)
-                final_content = _sanitize_final_content(expanded_twice, int(chapter_number))
-                current_len = _count_body_chars(final_content)
-            # 重写模式下，扩写后重新让终审专家审核并去重
-            if rewrite_suggestion:
-                if log_callback:
-                    log_callback("🔍 扩写后重新进行终审审核...", status='info')
-                final_content = _refinalize_content(agents[3], int(chapter_number), final_content, min_chars, max_chars, rewrite_suggestion)
-                current_len = _count_body_chars(final_content)
-            if log_callback:
-                log_callback(f"✅ 扩写完成，正文长度：{current_len}字", status='success')
+                log_callback(f"ℹ️ 正文长度：{current_len}字（低于下限{min_chars}字），建议手动补充", status='info')
 
         # 与上一章开头的去重
         dedup_enabled = os.getenv("CHAPTER_OPENING_DEDUP", "true").lower() != "false"
         if dedup_enabled and int(chapter_number) > 1 and previous_chapter_text:
             target_llm = agents[3].llm if len(agents) > 3 else agents[0].llm
             final_content = _dedupe_opening_if_needed(final_content, previous_chapter_text, target_llm, log_callback=log_callback)
-            current_len = _count_body_chars(final_content)
-            if current_len < min_chars:
-                expanded_once = _expand_chapter_to_min_length(agents[3], int(chapter_number), final_content, min_chars, max_chars)
-                final_content = _sanitize_final_content(expanded_once, int(chapter_number))
-                # 再次终审
-                if rewrite_suggestion:
-                    final_content = _refinalize_content(agents[3], int(chapter_number), final_content, min_chars, max_chars, rewrite_suggestion)
 
         # 章节内部去重：去除正文中高度相似的重复段落
         final_content = _dedupe_body_repetition(final_content)

@@ -79,8 +79,8 @@ class AppConfig:
     # ===== 生成配置 =====
     chapter_min_chars: int = 3500
     chapter_max_chars: int = 5500
-    chapter_min_chars_tomato: int = 2100
-    chapter_max_chars_tomato: int = 2600
+    chapter_min_chars_tomato: int = 2900
+    chapter_max_chars_tomato: int = 3400
     chapter_summary_max_chars: int = 900
     kickoff_timeout: int = 1500
     story_bible_refresh_every: int = 5

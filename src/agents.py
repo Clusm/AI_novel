@@ -133,7 +133,7 @@ def create_agents(project_name: str = None, chapter_number: int = None):
 
     deepseek_model = role_models["outline"]
     qwen_model = role_models["character"]
-    kimi_model = "openai/kimi-k2-5"
+    kimi_model = "openai/kimi-k2.5"
     writer_runtime_model = role_models["writer"]
     finalizer_runtime_model = role_models["finalizer"]
 
@@ -147,7 +147,7 @@ def create_agents(project_name: str = None, chapter_number: int = None):
             role_default_params.get(role, {}),
         )
         model_lower = (model_name or "").lower()
-        is_reasoner = any(p in model_lower for p in ["deepseek-reasoner", "openai/o1", "openai/o3"])
+        is_reasoner = any(p in model_lower for p in ["deepseek-reasoner", "openai/o1", "openai/o3", "kimi-k2"])
         if is_reasoner:
             payload = {}
             if role_kwargs.get("max_tokens") is not None:

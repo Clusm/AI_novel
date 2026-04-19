@@ -310,8 +310,8 @@ def create_chapter_generation_crew(
     min_chars = 3500
     max_chars = 5500
     if writing_style == "tomato":
-        min_chars = 2100
-        max_chars = 2600
+        min_chars = 2900
+        max_chars = 3400
     
     previous_summary = ""
     if chapter_number > 1:
